@@ -46,9 +46,13 @@ Japanese and 46 Latin-script languages: **no Arabic**. We use
 
 The **recogniser is the bottleneck, not the detector.** PaddleOCR ships Arabic
 in exactly one size — `arabic_PP-OCRv5_mobile_rec`, 7.6 MB — plus an older v3
-mobile model. There is no `arabic_..._server_rec`; `PP-OCRv5_server_rec` is
-Chinese + English only. So the detector can be upgraded to the server tier
-(and is, by default) but Arabic recognition cannot.
+mobile model. There is no `arabic_..._server_rec`. `PP-OCRv5_server_rec`
+covers ["Simplified Chinese, Traditional Chinese, English, Japanese, as well
+as complex text scenarios such as handwriting, vertical text, pinyin, and rare
+characters"][v5rec] — no Arabic. So the detector can be upgraded to the server
+tier (and is, by default) but Arabic recognition cannot.
+
+[v5rec]: http://www.paddleocr.ai/latest/en/version3.x/module_usage/text_recognition.html
 
 Measured on `tests/data/pack1` (Abu Dhabi shopfront photos):
 
