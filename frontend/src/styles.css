@@ -10,6 +10,9 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 
 .canvas-stack { position: relative; width: 100%; }
 .canvas-img, .canvas-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* contain makes the bitmap letterbox exactly like the SVG's
+   preserveAspectRatio="meet", so boxes and glyphs cannot separate. */
+.canvas-img { object-fit: contain; }
 
 .box { fill: rgba(77, 163, 255, 0.10); stroke: var(--accent); stroke-width: 2;
   vector-effect: non-scaling-stroke; cursor: pointer; }
@@ -70,3 +73,16 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .batch-exports button { flex: 1; padding: 2px 6px; font-size: 11px; border-radius: 4px;
   border: 1px solid #333842; background: #1a1d23; color: var(--muted); cursor: pointer; }
 .batch-notice { font-size: 11px; color: var(--muted); word-break: break-all; margin: 0 0 4px; }
+
+.canvas-frame { height: 100%; }
+/* react-zoom-pan-pinch sizes its wrapper/content to fit-content, which
+   collapses to 0 around an aspect-ratio box with absolutely positioned
+   children. Two-class selectors outrank the library's own rules. */
+.canvas-frame .canvas-wrapper { width: 100%; height: 100%; }
+/* the content box is a flex container: stretch would override the stack's
+   aspect-ratio and the overlay would drift off the glyphs. */
+.canvas-frame .canvas-content { width: 100%; height: 100%; align-items: flex-start; }
+.canvas-frame .canvas-stack { width: 100%; }
+.line-crop { width: 100%; height: 90px; background: #0d0f12; border: 1px solid #262a31;
+  border-radius: 6px; margin-block-end: 8px; }
+.line-crop-empty { display: grid; place-items: center; color: var(--muted); }

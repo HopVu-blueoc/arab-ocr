@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getImage, updateImageStatus, updateLine } from "../api/client";
 import type { ImageDetailDto, LineDto } from "../api/types";
 import { ImageCanvas } from "../components/ImageCanvas";
+import { LineCrop } from "../components/LineCrop";
 import { LineList } from "../components/LineList";
 import { Toolbar } from "../components/Toolbar";
 import { useReviewKeys } from "../hooks/useReviewKeys";
@@ -61,6 +62,7 @@ export function ReviewPage({
           <ImageCanvas image={image} />
         </section>
         <section className="pane pane-text">
+          <LineCrop image={image} line={image.lines.find((l) => l.id === selectedId) ?? null} />
           <LineList lines={image.lines} onChange={replaceLine} />
         </section>
       </div>

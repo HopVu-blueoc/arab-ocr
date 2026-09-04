@@ -1,3 +1,4 @@
+import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 import { imageFileUrl } from "../api/client";
 import type { ImageDetailDto } from "../api/types";
 import { useSelection } from "../store/selection";
@@ -8,29 +9,43 @@ export function ImageCanvas({ image }: { image: ImageDetailDto }) {
 
   return (
     <div className="canvas-frame">
-      <div className="canvas-stack" style={{ aspectRatio: `${image.width} / ${image.height}` }}>
-        <img src={imageFileUrl(image.id)} alt={image.filename} className="canvas-img" />
-        <svg
-          className="canvas-svg"
-          viewBox={`0 0 ${image.width} ${image.height}`}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {image.lines.map((line) => (
-            <polygon
-              key={line.id}
-              points={polygonToPoints(line.polygon)}
-              className={[
-                "box",
-                line.id === selectedId ? "box-selected" : "",
-                line.id === hoveredId ? "box-hovered" : "",
-              ].join(" ")}
-              onClick={() => select(line.id)}
-              onMouseEnter={() => hover(line.id)}
-              onMouseLeave={() => hover(null)}
-            />
-          ))}
-        </svg>
-      </div>
+      <TransformWrapper
+        minScale={0.5}
+        maxScale={8}
+        doubleClick={{ mode: "reset" }}
+        wheel={{ step: 0.15 }}
+      >
+        <TransformComponent wrapperClass="canvas-wrapper" contentClass="canvas-content">
+          {/* img and svg share this box, so the transform moves them together
+              and there is no scale arithmetic anywhere. */}
+          <div
+            className="canvas-stack"
+            style={{ aspectRatio: `${image.width} / ${image.height}` }}
+          >
+            <img src={imageFileUrl(image.id)} alt={image.filename} className="canvas-img" />
+            <svg
+              className="canvas-svg"
+              viewBox={`0 0 ${image.width} ${image.height}`}
+              preserveAspectRatio="xMidYMid meet"
+            >
+              {image.lines.map((line) => (
+                <polygon
+                  key={line.id}
+                  points={polygonToPoints(line.polygon)}
+                  className={[
+                    "box",
+                    line.id === selectedId ? "box-selected" : "",
+                    line.id === hoveredId ? "box-hovered" : "",
+                  ].join(" ")}
+                  onClick={() => select(line.id)}
+                  onMouseEnter={() => hover(line.id)}
+                  onMouseLeave={() => hover(null)}
+                />
+              ))}
+            </svg>
+          </div>
+        </TransformComponent>
+      </TransformWrapper>
     </div>
   );
 }

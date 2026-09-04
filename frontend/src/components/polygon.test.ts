@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { polygonToPoints } from "./polygon";
+import { polygonBBox, polygonToPoints } from "./polygon";
 
 describe("polygonToPoints", () => {
   it("formats an SVG points attribute in image pixel space", () => {
@@ -15,5 +15,18 @@ describe("polygonToPoints", () => {
 
   it("handles float coordinates", () => {
     expect(polygonToPoints([[1.5, 2.25]])).toBe("1.5,2.25");
+  });
+});
+
+describe("polygonBBox", () => {
+  it("returns the enclosing rectangle", () => {
+    expect(
+      polygonBBox([
+        [60, 40],
+        [600, 45],
+        [600, 100],
+        [60, 95],
+      ]),
+    ).toEqual({ x: 60, y: 40, w: 540, h: 60 });
   });
 });

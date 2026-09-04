@@ -13,6 +13,7 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-zoom-pan-pinch": "^4.2.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
