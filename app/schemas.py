@@ -16,6 +16,8 @@ class BatchOut(BaseModel):
     source_dir: str
     created_at: datetime
     image_count: int = 0
+    # Only meaningful on the create response: how many files this import
+    # skipped as sha256 duplicates. Not persisted, so GET always reports 0.
     skipped_count: int = 0
     done_count: int = 0
     approved_count: int = 0
