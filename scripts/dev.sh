@@ -2,7 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-redis-cli ping >/dev/null 2>&1 || { echo "redis is not running: brew services start redis"; exit 1; }
+docker compose up -d redis
+until docker exec arabic-ocr-redis redis-cli ping >/dev/null 2>&1; do
+  echo "waiting for redis..."
+  sleep 1
+done
 
 uv run celery -A app.worker.celery_app.celery worker --loglevel=info --pool=prefork --concurrency=2 &
 WORKER=$!

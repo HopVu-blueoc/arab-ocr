@@ -2,17 +2,39 @@
 
 OCR a folder of Arabic images with PaddleOCR, then verify the output side by side.
 
+## Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or any
+  Docker Engine) — running, for Redis. `docker info` should succeed.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python
+  package/version manager.
+- Node.js 20+ and npm, for the frontend.
+
 ## Setup (macOS)
 
 ```bash
-brew install redis && brew services start redis
-uv sync
-cd frontend && npm install && cd ..
+git clone <this-repo-url> arabic-ocr-review
+cd arabic-ocr-review
+
+uv sync                              # creates .venv, installs Python 3.12 + deps
+cd frontend && npm install && cd ..  # frontend deps
+
 cp .env.example .env
-uv run python scripts/smoke_ocr.py   # downloads models on first run
+
+docker compose up -d redis           # starts Redis in a container
+docker exec arabic-ocr-redis redis-cli ping   # expect: PONG
+
+uv run python scripts/smoke_ocr.py   # downloads OCR models on first run (~100MB)
 ```
 
-Python is pinned to 3.12: paddlepaddle 3.3.1 has no cp314 macOS wheel.
+Python is pinned to 3.12: paddlepaddle 3.3.1 has no cp314 macOS wheel. `uv sync`
+reads `.python-version` and fetches 3.12 automatically if it's not already
+installed — no manual pyenv/python setup needed.
+
+Redis runs in Docker (`docker-compose.yml`), not as a local install. It listens
+on `localhost:6379`, matching `REDIS_URL` in `.env.example`, so nothing else
+needs to change. To stop it: `docker compose down` (add `-v` to also drop its
+persisted data volume).
 
 The OCR models are pinned explicitly in `.env` rather than left to `lang=`
 defaults — in paddleocr 3.7.0 the default recogniser is `PP-OCRv6_medium_rec`,
@@ -22,10 +44,25 @@ whose 50-language list does not document Arabic. We use
 ## Run
 
 ```bash
-./scripts/dev.sh          # worker + API + UI
+./scripts/dev.sh
 ```
 
+This starts the Redis container (if not already up), the Celery worker, the
+FastAPI backend, and the Vite dev server, then waits — `Ctrl-C` stops the
+worker/API/UI. Redis itself keeps running in Docker afterward; `docker compose
+down` stops it separately.
+
 UI at <http://localhost:5173>, API docs at <http://localhost:8000/docs>.
+
+Running the three processes by hand instead of via `dev.sh` (useful for
+watching one process's logs on its own):
+
+```bash
+docker compose up -d redis
+uv run celery -A app.worker.celery_app.celery worker --loglevel=info --pool=prefork --concurrency=2
+uv run uvicorn app.main:app --port 8000 --reload
+cd frontend && npm run dev
+```
 
 ## Review workflow
 
