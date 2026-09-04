@@ -3,7 +3,8 @@
 body { margin: 0; background: var(--bg); color: var(--fg);
   font: 14px/1.5 system-ui, -apple-system, sans-serif; }
 
-.review-split { display: grid; grid-template-columns: 1fr 1fr; height: 100vh; }
+.review-split { display: grid; grid-template-columns: 1fr 1fr;
+  height: 100%; min-height: 0; }
 .pane { overflow: auto; padding: 12px; }
 .pane-image { background: #0d0f12; border-inline-end: 1px solid #262a31; }
 
@@ -23,3 +24,24 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .line-text { font-size: 20px; font-family: "Geeza Pro", "Noto Naskh Arabic", serif; }
 .empty, .error { color: var(--muted); padding: 12px; }
 .error { color: #ff6b6b; }
+
+.app-shell { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+.batch-list { border-inline-end: 1px solid #262a31; overflow: auto; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px; }
+.batch-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.batch-form input, .batch-form button { padding: 6px 8px; border-radius: 6px;
+  border: 1px solid #333842; background: #1a1d23; color: var(--fg); }
+.batch-item { display: flex; flex-direction: column; align-items: flex-start;
+  gap: 2px; padding: 8px; border: 1px solid #262a31; border-radius: 6px;
+  background: #171a1f; color: var(--fg); cursor: pointer; text-align: start; }
+.muted { color: var(--muted); font-size: 12px; }
+
+.app-main { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+.image-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px;
+  border-block-end: 1px solid #262a31; }
+.strip-item { white-space: nowrap; padding: 4px 8px; border-radius: 999px;
+  border: 1px solid #333842; background: #171a1f; color: var(--fg); cursor: pointer; }
+.strip-active { outline: 2px solid var(--accent); }
+.status-failed { border-color: #ff6b6b; color: #ff6b6b; }
+.status-approved { border-color: #4caf50; color: #9ae6a0; }
+.status-queued, .status-running { color: var(--muted); }
