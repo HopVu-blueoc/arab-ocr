@@ -1,0 +1,41 @@
+[project]
+name = "arabic-ocr-review"
+version = "0.1.0"
+description = "OCR Arabic images with PaddleOCR and review them side by side"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "celery[redis]>=5.6.3",
+    "fastapi>=0.141.1",
+    "paddleocr>=3.7.0",
+    "paddlepaddle>=3.3.1",
+    "pillow>=12.3.0",
+    "pydantic-settings>=2.15.0",
+    "redis>=6.4.0",
+    "sqlmodel>=0.0.42",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "arabic-reshaper>=3.0.1",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "python-bidi>=0.6.11",
+    "ruff>=0.16.6",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: needs real PaddleOCR models (downloads ~100MB on first run)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.uv]
+package = false
