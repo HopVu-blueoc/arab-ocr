@@ -1,6 +1,8 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
@@ -55,3 +57,6 @@ def session_scope() -> Iterator[Session]:
     """For the Celery worker: one commit per image."""
     with Session(get_engine()) as session:
         yield session
+
+
+SessionDep = Annotated[Session, Depends(get_session)]
