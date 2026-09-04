@@ -94,6 +94,17 @@ tagging which recogniser won each line. Note that **confidence is not
 accuracy** — a confidently wrong read scores 0.98 — so judge the text, not
 the mean.
 
+### Detector tradeoff, measured
+
+`server_det` and `mobile_det` don't just differ in speed — they detect
+*different boxes*. On `tests/data/pack1`: `server_det` recovers `ADNOC` and a
+near-complete street name (`شار الشبخ راشد بن سعيد`) that `mobile_det` missed
+outright, but `mobile_det` finds `KALYAN` (a correct brand name) that
+`server_det` never boxes at all, regardless of orientation settings. Neither
+dominates. If a specific brand/word matters and goes missing, try
+`OCR_DET_MODEL=PP-OCRv5_mobile_det` before assuming it's a recognition
+problem — it may never have been detected.
+
 ### The second recognition pass
 
 Each line scoring at or below `OCR_SECOND_PASS_MAX_SCORE` is re-read from a

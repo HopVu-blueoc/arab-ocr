@@ -42,8 +42,13 @@ class Settings(BaseSettings):
     # line the reviewer can fix beats a line silently dropped.
     ocr_rec_score_thresh: float = 0.3
 
-    # Per-line orientation classification; fixes upside-down and rotated lines.
-    ocr_use_textline_orientation: bool = True
+    # Per-line orientation classification. Measured regression on
+    # tests/data/pack1/image (15).png: it misclassified one crop's rotation
+    # and flipped a correctly-read "510" (1.000) into "OLS" (0.993) - a
+    # confident, silent wrong answer. Off until this can be scoped to only
+    # the crops that actually need it (tall/narrow ones), matching the
+    # crop_variants() heuristic already used in the second pass.
+    ocr_use_textline_orientation: bool = False
     # Whole-image rotation detection. Off: phone photos of shopfronts are
     # already upright and it adds a model pass per image.
     ocr_use_doc_orientation_classify: bool = False
