@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import batches, images, lines
+from app.routers import batches, images, lines, picker
 
 
 def create_app() -> FastAPI:
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(batches.router)
     app.include_router(images.router)
     app.include_router(lines.router)
+    app.include_router(picker.router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

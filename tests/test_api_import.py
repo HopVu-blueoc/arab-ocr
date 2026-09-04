@@ -34,3 +34,16 @@ def test_reimport_same_folder_adds_nothing(client, source_dir):
 def test_import_rejects_missing_dir(client, tmp_path):
     resp = client.post("/api/batches", json={"name": "x", "source_dir": str(tmp_path / "nope")})
     assert resp.status_code == 400
+
+
+def test_import_a_single_image_file(client, source_dir):
+    resp = client.post(
+        "/api/batches", json={"name": "single", "source_dir": str(source_dir / "one.png")}
+    )
+    assert resp.status_code == 201
+    batch = resp.json()
+    assert batch["image_count"] == 1
+
+    images = client.get(f"/api/batches/{batch['id']}/images").json()
+    assert len(images) == 1
+    assert images[0]["filename"] == "one.png"

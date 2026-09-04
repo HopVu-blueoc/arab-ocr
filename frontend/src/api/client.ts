@@ -44,3 +44,6 @@ export const exportBatch = (batchId: number, format: "jsonl" | "txt") =>
     method: "POST",
     body: JSON.stringify({ format }),
   });
+
+export const pickPath = (kind: "folder" | "file") =>
+  json<{ path: string | null }>(`/api/picker/${kind}`, { method: "POST" });

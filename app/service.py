@@ -19,9 +19,20 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _candidate_files(source: Path) -> list[Path]:
+    if source.is_file():
+        return [source] if source.suffix.lower() in IMAGE_SUFFIXES else []
+    return [
+        p for p in sorted(source.rglob("*")) if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES
+    ]
+
+
 def import_folder(session: Session, name: str, source_dir: Path) -> tuple[Batch, int, int]:
-    """Returns (batch, imported_count, skipped_count). Skips by sha256."""
-    if not source_dir.is_dir():
+    """Returns (batch, imported_count, skipped_count). Skips by sha256.
+
+    source_dir may be a directory (imported recursively) or a single image file.
+    """
+    if not source_dir.exists():
         raise NotADirectoryError(str(source_dir))
 
     batch = Batch(name=name, source_dir=str(source_dir))
@@ -30,9 +41,7 @@ def import_folder(session: Session, name: str, source_dir: Path) -> tuple[Batch,
     session.refresh(batch)
 
     imported = skipped = 0
-    for path in sorted(source_dir.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
-            continue
+    for path in _candidate_files(source_dir):
         digest = sha256_of(path)
         if session.exec(select(Image).where(Image.sha256 == digest)).first():
             skipped += 1

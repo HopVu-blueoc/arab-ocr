@@ -10,7 +10,7 @@ done
 
 uv run celery -A app.worker.celery_app.celery worker --loglevel=info --pool=prefork --concurrency=2 &
 WORKER=$!
-uv run uvicorn app.main:app --port 8000 &
+uv run uvicorn app.main:app --port 8000 --reload &
 API=$!
 (cd frontend && npm run dev) &
 UI=$!

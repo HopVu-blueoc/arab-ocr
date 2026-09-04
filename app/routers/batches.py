@@ -36,7 +36,7 @@ def create_batch(payload: BatchCreate, session: SessionDep) -> BatchOut:
         batch, imported, skipped = import_folder(session, payload.name, Path(payload.source_dir))
     except NotADirectoryError:
         raise HTTPException(
-            status_code=400, detail=f"not a directory: {payload.source_dir}"
+            status_code=400, detail=f"path does not exist: {payload.source_dir}"
         ) from None
 
     for image in session.exec(

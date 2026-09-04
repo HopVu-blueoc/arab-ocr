@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createBatch, exportBatch, getBatches } from "../api/client";
+import { createBatch, exportBatch, getBatches, pickPath } from "../api/client";
 import type { BatchDto } from "../api/types";
 
 export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
@@ -7,6 +7,7 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
   const [name, setName] = useState("");
   const [dir, setDir] = useState("");
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = () => getBatches().then(setBatches).catch(() => {});
@@ -16,6 +17,21 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
     const timer = setInterval(refresh, 3000); // progress ticks while OCR runs
     return () => clearInterval(timer);
   }, []);
+
+  async function browse(kind: "folder" | "file") {
+    setPicking(true);
+    setNotice(null);
+    try {
+      const { path } = await pickPath(kind);
+      if (path === null) return; // dialog cancelled
+      setDir(path);
+      if (!name.trim()) setName(path.split("/").filter(Boolean).pop() ?? "");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPicking(false);
+    }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -43,19 +59,29 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
   return (
     <aside className="batch-list">
       <form onSubmit={submit} className="batch-form">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Batch name"
-          required
-        />
+        <div className="browse-row">
+          <button type="button" disabled={picking} onClick={() => browse("folder")}>
+            📁 Folder…
+          </button>
+          <button type="button" disabled={picking} onClick={() => browse("file")}>
+            🖼 Image…
+          </button>
+        </div>
         <input
           value={dir}
           onChange={(e) => setDir(e.target.value)}
           placeholder="/path/to/images"
           required
         />
-        <button disabled={busy}>{busy ? "Importing…" : "Import folder"}</button>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Batch name"
+          required
+        />
+        <button disabled={busy || !dir || !name}>
+          {busy ? "Importing…" : "Import"}
+        </button>
       </form>
       {notice && <p className="batch-notice">{notice}</p>}
       {batches.map((b) => (
