@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createBatch, getBatches } from "../api/client";
+import { createBatch, exportBatch, getBatches } from "../api/client";
 import type { BatchDto } from "../api/types";
 
 export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
@@ -7,6 +7,7 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
   const [name, setName] = useState("");
   const [dir, setDir] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = () => getBatches().then(setBatches).catch(() => {});
 
@@ -30,6 +31,15 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
     }
   }
 
+  async function runExport(batchId: number, format: "jsonl" | "txt") {
+    try {
+      const res = await exportBatch(batchId, format);
+      setNotice(`Wrote ${res.path}`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <aside className="batch-list">
       <form onSubmit={submit} className="batch-form">
@@ -47,14 +57,21 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
         />
         <button disabled={busy}>{busy ? "Importing…" : "Import folder"}</button>
       </form>
+      {notice && <p className="batch-notice">{notice}</p>}
       {batches.map((b) => (
-        <button key={b.id} className="batch-item" onClick={() => onPick(b.id)}>
-          <span>{b.name}</span>
-          <span className="muted">
-            {b.done_count + b.approved_count}/{b.image_count} done
-            {b.failed_count > 0 ? ` · ${b.failed_count} failed` : ""}
-          </span>
-        </button>
+        <div key={b.id} className="batch-entry">
+          <button className="batch-item" onClick={() => onPick(b.id)}>
+            <span>{b.name}</span>
+            <span className="muted">
+              {b.done_count + b.approved_count}/{b.image_count} done
+              {b.failed_count > 0 ? ` · ${b.failed_count} failed` : ""}
+            </span>
+          </button>
+          <div className="batch-exports">
+            <button onClick={() => runExport(b.id, "jsonl")}>JSONL</button>
+            <button onClick={() => runExport(b.id, "txt")}>.txt</button>
+          </div>
+        </div>
       ))}
     </aside>
   );

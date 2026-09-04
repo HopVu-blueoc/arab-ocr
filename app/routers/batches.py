@@ -1,10 +1,13 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
+from app.config import get_settings
 from app.db import SessionDep
 from app.dispatch import enqueue_image
+from app.exporters import export_jsonl, export_txt
 from app.models import Batch, Image, ImageStatus
 from app.schemas import BatchCreate, BatchOut, ImageOut
 from app.service import import_folder
@@ -77,3 +80,25 @@ def list_images(batch_id: int, session: SessionDep) -> list[Image]:
     return session.exec(
         select(Image).where(Image.batch_id == batch_id).order_by(Image.filename)
     ).all()
+
+
+class ExportRequest(BaseModel):
+    format: str  # jsonl | txt
+
+
+@router.post("/{batch_id}/export")
+def export_batch(
+    batch_id: int, payload: ExportRequest, session: SessionDep
+) -> dict[str, object]:
+    if session.get(Batch, batch_id) is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+    out_dir = get_settings().exports_dir
+    if payload.format == "jsonl":
+        path = export_jsonl(session, batch_id, out_dir)
+    elif payload.format == "txt":
+        path = export_txt(session, batch_id, out_dir)
+    else:
+        raise HTTPException(status_code=400, detail="format must be 'jsonl' or 'txt'")
+
+    count = len(session.exec(select(Image.id).where(Image.batch_id == batch_id)).all())
+    return {"path": str(path.resolve()), "count": count}
