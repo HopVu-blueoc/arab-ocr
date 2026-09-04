@@ -11,6 +11,18 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     job_backend: str = "inline"  # inline | celery
     ocr_device: str = "cpu"
+
+    # Which OcrEngine to build. "paddle" = the detector+CRNN pipeline below
+    # (fast, CPU-friendly, Arabic capped at a 7.6MB model). "paddle_vl" =
+    # PaddleOCR-VL, a ~1B-param vision-language model that has actual
+    # language context instead of per-crop character classification - see
+    # app/ocr/paddle_vl_engine.py for what that changes and its caveats.
+    # Not yet benchmarked on tests/data/pack1; expect it to be much slower
+    # on this Mac's CPU and to want the CUDA box to be practical at volume.
+    ocr_engine: str = "paddle"
+    ocr_vl_model_name: str = "PaddleOCR-VL-1.6-0.9B"
+    ocr_vl_backend: str = "native"
+
     ocr_rec_model: str = "arabic_PP-OCRv5_mobile_rec"
     # Server detector: ~10x slower on CPU than mobile (4.8s vs 0.45s per
     # image) and on image 16 it found fewer boxes, but accuracy is the

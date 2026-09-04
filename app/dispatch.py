@@ -7,9 +7,15 @@ _engine: OcrEngine | None = None
 def get_engine() -> OcrEngine:
     global _engine
     if _engine is None:
-        from app.ocr.paddle_engine import PaddleOcrEngine
+        settings = get_settings()
+        if settings.ocr_engine == "paddle_vl":
+            from app.ocr.paddle_vl_engine import PaddleOcrVLEngine
 
-        _engine = PaddleOcrEngine()
+            _engine = PaddleOcrVLEngine(settings)
+        else:
+            from app.ocr.paddle_engine import PaddleOcrEngine
+
+            _engine = PaddleOcrEngine(settings)
     return _engine
 
 

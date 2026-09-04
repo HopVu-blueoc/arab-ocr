@@ -70,12 +70,17 @@ Two real upgrade paths, in order of effort:
    reviewer fixed), so every correction is already a labelled training pair.
    Export gives `image → label`. A few thousand reviewed lines is the normal
    amount needed, and this is the only path that fixes the domain gap.
-2. **Swap in PaddleOCR-VL** (`from paddleocr import PaddleOCRVL`) — a 1.0B
-   vision-language model that explicitly lists Arabic among 109 languages, so
-   it is far stronger than a 7.6 MB CRNN. It is built for CUDA, which makes it
-   a natural fit for the Ubuntu box rather than this Mac. It would slot in
-   behind the existing `OcrEngine` protocol as a third engine alongside
-   `PaddleOcrEngine` and `FakeOcrEngine`.
+2. **Switch to PaddleOCR-VL** — already wired in, set `OCR_ENGINE=paddle_vl`
+   in `.env`. A ~1B-parameter vision-language model that lists Arabic among
+   109 languages, so it has actual language context instead of classifying
+   each cropped character in isolation - see `app/ocr/paddle_vl_engine.py`
+   for exactly what that changes. Not yet benchmarked on this corpus; try it
+   with `uv run python -u scripts/smoke_ocr_vl.py <image>` before switching a
+   whole batch over. Expect it to be slow on this Mac's CPU (first run also
+   downloads several GB) - it is built for the CUDA box, not validated for
+   speed here. It has no per-line confidence score the CNN pipeline has, so
+   `OCR_REC_SCORE_THRESH` does not filter its output; every line needs a
+   manual look.
 
 ### Tuning the knobs
 
