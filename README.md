@@ -38,8 +38,68 @@ persisted data volume).
 
 The OCR models are pinned explicitly in `.env` rather than left to `lang=`
 defaults — in paddleocr 3.7.0 the default recogniser is `PP-OCRv6_medium_rec`,
-whose 50-language list does not document Arabic. We use
-`arabic_PP-OCRv5_mobile_rec` with `PP-OCRv5_mobile_det`.
+and PP-OCRv6's 50 languages are Chinese, Traditional Chinese, English,
+Japanese and 46 Latin-script languages: **no Arabic**. We use
+`arabic_PP-OCRv5_mobile_rec` with `PP-OCRv5_server_det`.
+
+## Accuracy: where the ceiling is
+
+The **recogniser is the bottleneck, not the detector.** PaddleOCR ships Arabic
+in exactly one size — `arabic_PP-OCRv5_mobile_rec`, 7.6 MB — plus an older v3
+mobile model. There is no `arabic_..._server_rec`; `PP-OCRv5_server_rec` is
+Chinese + English only. So the detector can be upgraded to the server tier
+(and is, by default) but Arabic recognition cannot.
+
+Measured on `tests/data/pack1` (Abu Dhabi shopfront photos):
+
+- Main signs read well: `كوكب الجمال` 0.96, `ADNOC OASIS` 0.997,
+  `واحة أدنوك` 0.82, `شارع الفلاح` 0.93.
+- Small, low-contrast, decorative and heavily-slanted text is where it fails.
+- Scene text is a different problem from documents. 60–80% line accuracy is
+  near state of the art for Arabic *scene* text; scanned documents should do
+  much better.
+
+Two real upgrade paths, in order of effort:
+
+1. **Fine-tune the Arabic recogniser on this corpus.** The schema keeps
+   `rec_text` (what the model said) apart from `corrected_text` (what the
+   reviewer fixed), so every correction is already a labelled training pair.
+   Export gives `image → label`. A few thousand reviewed lines is the normal
+   amount needed, and this is the only path that fixes the domain gap.
+2. **Swap in PaddleOCR-VL** (`from paddleocr import PaddleOCRVL`) — a 1.0B
+   vision-language model that explicitly lists Arabic among 109 languages, so
+   it is far stronger than a 7.6 MB CRNN. It is built for CUDA, which makes it
+   a natural fit for the Ubuntu box rather than this Mac. It would slot in
+   behind the existing `OcrEngine` protocol as a third engine alongside
+   `PaddleOcrEngine` and `FakeOcrEngine`.
+
+### Tuning the knobs
+
+`.env` exposes the detection thresholds, all defaulting to PaddleOCR's own
+values. There is no universally correct setting — measured here, raising
+`OCR_DET_LIMIT_SIDE_LEN` to 1280+ split the sign `كوكب الجمال` into two
+boxes, while *lowering* it to 736 split `مرحبا بالعالم` in the synthetic
+fixture. What matters is text height in pixels. Measure before changing:
+
+```bash
+PYTHONPATH=. uv run python -u scripts/bench_ocr.py tests/data/pack1/*.png
+```
+
+That prints PaddleOCR's defaults against your current `.env` side by side,
+tagging which recogniser won each line. Note that **confidence is not
+accuracy** — a confidently wrong read scores 0.98 — so judge the text, not
+the mean.
+
+### The second recognition pass
+
+Each line scoring at or below `OCR_SECOND_PASS_MAX_SCORE` is re-read from a
+perspective-corrected, upscaled, contrast-stretched crop using *both* the
+Arabic and the Latin recogniser, and the better score wins. This is what
+recovers slanted text (a sheared Arabic line smears its ligatures together
+far faster than Latin does) and bilingual signs. A rescue must beat the
+original by `OCR_RESCUE_MIN_GAIN` to replace it, because scores are not
+calibrated between the two models — without the margin, a confident Latin
+misread turned `510` into `OLS` at 0.98.
 
 ## Run
 
