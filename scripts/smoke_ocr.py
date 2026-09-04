@@ -10,8 +10,6 @@ IMAGE = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "arabic_sam
 
 def main() -> int:
     ocr = PaddleOCR(
-        lang="ar",
-        ocr_version="PP-OCRv5",
         text_recognition_model_name="arabic_PP-OCRv5_mobile_rec",
         text_detection_model_name="PP-OCRv5_mobile_det",
         device="cpu",

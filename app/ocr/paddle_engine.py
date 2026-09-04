@@ -41,11 +41,10 @@ class PaddleOcrEngine:
 
         s = self.settings
         if self._ocr is None:
-            # lang/ocr_version are ignored while explicit model names are set;
-            # they are passed anyway so blanking the names falls back sanely.
+            # No lang= or ocr_version=: PaddleOCR ignores both whenever
+            # explicit model names are given, and passing them only produced a
+            # UserWarning on every startup. The model names are the config.
             self._ocr = PaddleOCR(
-                lang=s.ocr_lang,
-                ocr_version=s.ocr_version,
                 text_recognition_model_name=s.ocr_rec_model,
                 text_detection_model_name=s.ocr_det_model,
                 device=s.ocr_device,

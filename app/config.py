@@ -11,8 +11,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     job_backend: str = "inline"  # inline | celery
     ocr_device: str = "cpu"
-    ocr_lang: str = "ar"
-    ocr_version: str = "PP-OCRv5"
     ocr_rec_model: str = "arabic_PP-OCRv5_mobile_rec"
     # Server detector: ~10x slower on CPU than mobile (4.8s vs 0.45s per
     # image) and on image 16 it found fewer boxes, but accuracy is the
