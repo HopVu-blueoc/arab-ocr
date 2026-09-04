@@ -6,8 +6,8 @@ from fastapi.responses import FileResponse
 from sqlmodel import select
 
 from app.db import SessionDep
-from app.models import Image, Line
-from app.schemas import ImageDetailOut, LineOut
+from app.models import Image, ImageStatus, Line, utcnow
+from app.schemas import ImageDetailOut, ImageOut, ImageUpdate, LineOut
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
@@ -37,3 +37,24 @@ def get_image_file(image_id: int, session: SessionDep) -> FileResponse:
         raise HTTPException(status_code=410, detail=f"source file is gone: {path}")
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type)
+
+
+APPROVABLE = {ImageStatus.done, ImageStatus.approved}
+
+
+@router.patch("/{image_id}", response_model=ImageOut)
+def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Image:
+    image = session.get(Image, image_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="image not found")
+    if payload.status is ImageStatus.approved and image.status not in APPROVABLE:
+        raise HTTPException(
+            status_code=409, detail=f"cannot approve an image in state {image.status}"
+        )
+
+    image.status = payload.status
+    image.updated_at = utcnow()
+    session.add(image)
+    session.commit()
+    session.refresh(image)
+    return image

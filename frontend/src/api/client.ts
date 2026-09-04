@@ -1,4 +1,11 @@
-import type { BatchDto, ImageDetailDto, ImageDto, LineDto, LineStatus } from "./types";
+import type {
+  BatchDto,
+  ImageDetailDto,
+  ImageDto,
+  ImageStatus,
+  LineDto,
+  LineStatus,
+} from "./types";
 
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, {
@@ -28,3 +35,6 @@ export const updateLine = (
   lineId: number,
   patch: { corrected_text?: string | null; status?: LineStatus },
 ) => json<LineDto>(`/api/lines/${lineId}`, { method: "PATCH", body: JSON.stringify(patch) });
+
+export const updateImageStatus = (imageId: number, status: ImageStatus) =>
+  json<ImageDto>(`/api/images/${imageId}`, { method: "PATCH", body: JSON.stringify({ status }) });

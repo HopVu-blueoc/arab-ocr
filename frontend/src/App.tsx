@@ -23,6 +23,12 @@ export default function App() {
     return () => clearInterval(timer);
   }, [batchId]);
 
+  const nextImage = () => {
+    const index = images.findIndex((img) => img.id === imageId);
+    const next = images[index + 1];
+    if (next) setImageId(next.id);
+  };
+
   return (
     <div className="app-shell">
       <BatchList
@@ -36,7 +42,7 @@ export default function App() {
         {imageId === null ? (
           <p className="empty">Pick a batch, then an image.</p>
         ) : (
-          <ReviewPage imageId={imageId} />
+          <ReviewPage imageId={imageId} onNextImage={nextImage} />
         )}
       </main>
     </div>

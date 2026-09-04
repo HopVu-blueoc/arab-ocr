@@ -54,3 +54,15 @@ def source_dir(tmp_path):
         img.save(d / name)
     (d / "notes.txt").write_text("ignore me", encoding="utf-8")
     return d
+
+
+@pytest.fixture
+def session_factory():
+    from sqlmodel import Session
+
+    from app.db import get_engine
+
+    def factory():
+        return Session(get_engine())
+
+    return factory

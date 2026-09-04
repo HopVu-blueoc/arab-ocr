@@ -57,3 +57,10 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .line-status-approved { border-inline-start: 3px solid #4caf50; }
 .line-save-failed { outline: 1px solid #ff6b6b; }
 .line-save-failed .line-score { color: #ff6b6b; font-size: 11px; }
+
+.review-shell { display: grid; grid-template-rows: auto 1fr; min-height: 0; height: 100%; }
+.toolbar { display: flex; gap: 12px; align-items: center; padding: 8px 12px;
+  border-block-end: 1px solid #262a31; }
+.toolbar-actions { margin-inline-start: auto; display: flex; gap: 6px; }
+.toolbar-actions button { padding: 4px 10px; border-radius: 6px; border: 1px solid #333842;
+  background: #1a1d23; color: var(--fg); cursor: pointer; }
