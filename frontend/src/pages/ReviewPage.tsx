@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getImage, updateImageStatus, updateLine } from "../api/client";
+import { getImage, retryImage, updateImageStatus, updateLine } from "../api/client";
 import { REVIEW_POLL_MS, isProcessing } from "../api/status";
 import type { ImageDetailDto, LineDto } from "../api/types";
 import { ImageCanvas } from "../components/ImageCanvas";
@@ -70,6 +70,21 @@ export function ReviewPage({
     onNextImage();
   }
 
+  async function retryOcr() {
+    if (image === null) return;
+    try {
+      // Sets status back to "queued" - the poll effect above (keyed on
+      // image?.status) picks that up on its own and starts refreshing
+      // again, the same path a fresh upload takes.
+      const updated = await retryImage(image.id);
+      setImage((prev) =>
+        prev === null ? prev : { ...prev, status: updated.status, error: updated.error },
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   useReviewKeys({
     lines: image?.lines ?? [],
     selectedId,
@@ -87,7 +102,7 @@ export function ReviewPage({
       <p className="processing-note" hidden={!isProcessing(image.status)}>
         OCR running — this view updates itself.
       </p>
-      <Toolbar image={image} onApprove={approveImage} onNext={onNextImage} />
+      <Toolbar image={image} onApprove={approveImage} onNext={onNextImage} onRetry={retryOcr} />
       <div className="review-split">
         <section className="pane pane-image">
           <ImageCanvas image={image} />

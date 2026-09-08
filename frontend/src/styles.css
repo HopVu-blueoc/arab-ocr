@@ -90,6 +90,10 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .toolbar-actions { margin-inline-start: auto; display: flex; gap: 6px; flex-shrink: 0; }
 .toolbar-actions button { padding: 4px 10px; border-radius: 6px; border: 1px solid #333842;
   background: #1a1d23; color: var(--fg); cursor: pointer; }
+/* Same red as .status-failed, so a failed image reads consistently whether
+   seen in the strip or the review pane it's currently open in. */
+.toolbar-error { color: #ff6b6b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar-retry { border-color: #ff6b6b; color: #ff6b6b; }
 
 .batch-list-toolbar { display: flex; gap: 6px; margin-bottom: 4px; }
 .batch-list-toolbar button { padding: 4px 8px; font-size: 11px; border-radius: 6px;

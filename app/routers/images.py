@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
 from app.db import SessionDep
+from app.dispatch import enqueue_image
 from app.models import Image, ImageStatus, Line, utcnow
 from app.schemas import ImageDetailOut, ImageOut, ImageUpdate, LineOut
 from app.storage import ObjectNotFound, get_storage
@@ -81,4 +82,32 @@ def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Im
     session.add(image)
     session.commit()
     session.refresh(image)
+    return image
+
+
+@router.post("/{image_id}/retry", response_model=ImageOut)
+def retry_image(image_id: int, session: SessionDep) -> Image:
+    """Re-run OCR on a failed image.
+
+    Only from `failed`: `run_ocr_for_image` deletes and recreates every Line
+    row on each run, so retrying a `done`/`approved` image would destroy any
+    corrections the reviewer already made.
+    """
+    image = session.get(Image, image_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="image not found")
+    if image.status != ImageStatus.failed:
+        raise HTTPException(
+            status_code=409, detail=f"can only retry a failed image, not {image.status}"
+        )
+
+    image.status = ImageStatus.queued
+    image.error = None
+    image.updated_at = utcnow()
+    session.add(image)
+    session.commit()
+    session.refresh(image)
+
+    enqueue_image(image.id)
+    session.refresh(image)  # the inline job backend advances status synchronously
     return image

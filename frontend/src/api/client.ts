@@ -42,6 +42,9 @@ export const updateLine = (
 export const updateImageStatus = (imageId: number, status: ImageStatus) =>
   json<ImageDto>(`/api/images/${imageId}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
+export const retryImage = (imageId: number) =>
+  json<ImageDto>(`/api/images/${imageId}/retry`, { method: "POST" });
+
 export const exportBatch = (batchId: number, format: "jsonl" | "txt") =>
   json<{ path: string; count: number }>(`/api/batches/${batchId}/export`, {
     method: "POST",
