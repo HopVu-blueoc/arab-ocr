@@ -1,67 +1,12 @@
-import hashlib
 import time
-from pathlib import Path
 
-from PIL import Image as PILImage
 from sqlmodel import Session, select
 
-from app.models import Batch, Image, ImageStatus, Line, utcnow
+from app.models import Image, ImageStatus, Line, utcnow
 from app.ocr.engine import OcrEngine
+from app.storage import get_storage
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-
-
-def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _candidate_files(source: Path) -> list[Path]:
-    if source.is_file():
-        return [source] if source.suffix.lower() in IMAGE_SUFFIXES else []
-    return [
-        p for p in sorted(source.rglob("*")) if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES
-    ]
-
-
-def import_folder(session: Session, name: str, source_dir: Path) -> tuple[Batch, int, int]:
-    """Returns (batch, imported_count, skipped_count). Skips by sha256.
-
-    source_dir may be a directory (imported recursively) or a single image file.
-    """
-    if not source_dir.exists():
-        raise NotADirectoryError(str(source_dir))
-
-    batch = Batch(name=name, source_dir=str(source_dir))
-    session.add(batch)
-    session.commit()
-    session.refresh(batch)
-
-    imported = skipped = 0
-    for path in _candidate_files(source_dir):
-        digest = sha256_of(path)
-        if session.exec(select(Image).where(Image.sha256 == digest)).first():
-            skipped += 1
-            continue
-        with PILImage.open(path) as img:
-            width, height = img.size
-        session.add(
-            Image(
-                batch_id=batch.id,
-                path=str(path),
-                filename=path.name,
-                sha256=digest,
-                width=width,
-                height=height,
-                status=ImageStatus.pending,
-            )
-        )
-        imported += 1
-    session.commit()
-    return batch, imported, skipped
 
 
 def run_ocr_for_image(session: Session, image_id: int, engine: OcrEngine) -> None:
@@ -75,7 +20,11 @@ def run_ocr_for_image(session: Session, image_id: int, engine: OcrEngine) -> Non
 
     started = time.perf_counter()
     try:
-        result = engine.run(Path(image.path))
+        # image.path is a storage key. as_local_path gives PaddleOCR the real
+        # filesystem path it wants without app/ocr/ ever knowing about object
+        # storage; for the local backend it is the file itself, no copy.
+        with get_storage().as_local_path(image.path) as local_path:
+            result = engine.run(local_path)
     except Exception as exc:  # noqa: BLE001 - the message is shown to the reviewer
         image.status = ImageStatus.failed
         image.error = f"{type(exc).__name__}: {exc}"

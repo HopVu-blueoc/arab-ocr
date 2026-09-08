@@ -9,15 +9,27 @@ from app.ocr.fake_engine import FakeOcrEngine
 
 
 @pytest.fixture
-def image_row(session, tmp_path) -> Image:
+def image_row(session, tmp_path, monkeypatch) -> Image:
+    """path is a storage key now: put the file through a real LocalStorage
+    rooted at tmp_path and inject it as the get_storage() singleton, the same
+    way run_ocr_for_image will look it up."""
+    from app import storage as storage_module
+    from app.storage.local import LocalStorage
+
+    storage = LocalStorage(tmp_path / "objects")
+    monkeypatch.setattr(storage_module, "_storage", storage)
+
     path = tmp_path / "a.png"
     PILImage.new("RGB", (1000, 400), "white").save(path)
+    key = "batch-1/a.png"
+    storage.put(key, path)
+
     batch = Batch(name="b", source_dir=str(tmp_path))
     session.add(batch)
     session.commit()
     image = Image(
         batch_id=batch.id,
-        path=str(path),
+        path=key,
         filename="a.png",
         sha256="h",
         width=1000,

@@ -1,6 +1,6 @@
-from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlmodel import Session, func, select
 
@@ -9,8 +9,9 @@ from app.db import SessionDep
 from app.dispatch import enqueue_image
 from app.exporters import export_jsonl, export_txt
 from app.models import Batch, Image, ImageStatus
-from app.schemas import BatchCreate, BatchOut, ImageOut
-from app.service import import_folder
+from app.schemas import BatchCreate, BatchOut, ImageOut, UploadFailure, UploadResult
+from app.storage import get_storage
+from app.uploads import UploadRejected, display_name_for, register_image, store_upload
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
@@ -30,33 +31,83 @@ def _counts(session: Session, batch_id: int) -> dict[str, int]:
     }
 
 
+UploadFiles = Annotated[list[UploadFile], File()]
+
+
+def _max_upload_bytes() -> int:
+    return get_settings().max_upload_mb * (1 << 20)
+
+
 @router.post("", response_model=BatchOut, status_code=status.HTTP_201_CREATED)
 def create_batch(payload: BatchCreate, session: SessionDep) -> BatchOut:
-    try:
-        batch, imported, skipped = import_folder(session, payload.name, Path(payload.source_dir))
-    except NotADirectoryError:
-        raise HTTPException(
-            status_code=400, detail=f"path does not exist: {payload.source_dir}"
-        ) from None
+    """Create an empty batch. Images arrive separately, via POST .../images.
 
-    for image in session.exec(
-        select(Image).where(Image.batch_id == batch.id, Image.status == ImageStatus.pending)
-    ).all():
+    Two commits because source_dir is derived from the row's own id, which
+    only exists after the insert.
+    """
+    batch = Batch(name=payload.name, source_dir="")
+    session.add(batch)
+    session.commit()
+    session.refresh(batch)
+
+    batch.source_dir = f"batch-{batch.id}"  # the storage prefix, not a path
+    session.add(batch)
+    session.commit()
+    session.refresh(batch)
+    return BatchOut(**batch.model_dump(), **_counts(session, batch.id))
+
+
+@router.post(
+    "/{batch_id}/images",
+    response_model=UploadResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_images(batch_id: int, session: SessionDep, files: UploadFiles) -> UploadResult:
+    """Store uploaded images and queue each new one for OCR.
+
+    Per-file outcomes rather than a single status code: a 200-file upload must
+    not be rejected wholesale because one file was a PDF.
+    """
+    if session.get(Batch, batch_id) is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    storage = get_storage()
+    max_bytes = _max_upload_bytes()
+
+    stored_images: list[Image] = []
+    skipped = 0
+    failed: list[UploadFailure] = []
+
+    for upload in files:
+        display_name = display_name_for(upload.filename)
+        try:
+            stored = store_upload(
+                upload.file,
+                display_name=display_name,
+                batch_id=batch_id,
+                storage=storage,
+                max_bytes=max_bytes,
+            )
+        except UploadRejected as exc:
+            failed.append(UploadFailure(filename=display_name, reason=str(exc)))
+            continue
+
+        image = register_image(session, batch_id=batch_id, stored=stored, storage=storage)
+        if image is None:
+            skipped += 1
+            continue
         image.status = ImageStatus.queued
-        session.add(image)
+        stored_images.append(image)
+
     session.commit()
 
-    for image_id in session.exec(select(Image.id).where(Image.batch_id == batch.id)).all():
-        enqueue_image(image_id)
+    # Enqueue exactly the rows this request created. Selecting every queued row
+    # of the batch instead would re-enqueue anything an earlier upload left
+    # queued, which under the Celery backend means OCRing it twice.
+    for image in stored_images:
+        enqueue_image(image.id)  # readable post-commit: the row refreshes on access
 
-    counts = _counts(session, batch.id)
-    counts.pop("image_count")
-    return BatchOut(
-        **batch.model_dump(),
-        image_count=imported,
-        skipped_count=skipped,
-        **counts,
-    )
+    return UploadResult(imported=len(stored_images), skipped=skipped, failed=failed)
 
 
 @router.get("", response_model=list[BatchOut])
@@ -87,9 +138,7 @@ class ExportRequest(BaseModel):
 
 
 @router.post("/{batch_id}/export")
-def export_batch(
-    batch_id: int, payload: ExportRequest, session: SessionDep
-) -> dict[str, object]:
+def export_batch(batch_id: int, payload: ExportRequest, session: SessionDep) -> dict[str, object]:
     if session.get(Batch, batch_id) is None:
         raise HTTPException(status_code=404, detail="batch not found")
     out_dir = get_settings().exports_dir

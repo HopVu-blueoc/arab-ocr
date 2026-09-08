@@ -7,21 +7,30 @@ from app.models import ImageStatus, LineStatus
 
 class BatchCreate(BaseModel):
     name: str
-    source_dir: str
 
 
 class BatchOut(BaseModel):
     id: int
     name: str
+    # The storage prefix this batch's objects live under. Informational for
+    # operators; never a client-supplied value.
     source_dir: str
     created_at: datetime
     image_count: int = 0
-    # Only meaningful on the create response: how many files this import
-    # skipped as sha256 duplicates. Not persisted, so GET always reports 0.
-    skipped_count: int = 0
     done_count: int = 0
     approved_count: int = 0
     failed_count: int = 0
+
+
+class UploadFailure(BaseModel):
+    filename: str
+    reason: str
+
+
+class UploadResult(BaseModel):
+    imported: int
+    skipped: int  # bytes already imported, possibly into another batch
+    failed: list[UploadFailure] = []
 
 
 class LineOut(BaseModel):

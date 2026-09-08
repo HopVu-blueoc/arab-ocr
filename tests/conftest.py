@@ -38,8 +38,35 @@ def client(tmp_path, monkeypatch):
     db.configure_engine(f"sqlite:///{tmp_path / 'test.db'}")
     db.init_db()
     monkeypatch.setattr(dispatch, "_engine", FakeOcrEngine())
+
+    from app import storage as storage_module
+
+    # Same singleton reset as dispatch._engine: LocalStorage captures
+    # images_dir, which is tmp_path-specific.
+    monkeypatch.setattr(storage_module, "_storage", None)
+
     yield TestClient(create_app())
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def upload(client):
+    """Create a batch and upload files to it through the API.
+
+    Returns (batch_json, upload_result_json). Batches are created empty now,
+    so image_count on the create response is always 0 - read the upload
+    result, or re-GET the batch, for counts.
+    """
+
+    def do(name: str, paths: list) -> tuple[dict, dict]:
+        batch = client.post("/api/batches", json={"name": name})
+        assert batch.status_code == 201, batch.text
+        files = [("files", (p.name, p.read_bytes(), "image/png")) for p in paths]
+        result = client.post(f"/api/batches/{batch.json()['id']}/images", files=files)
+        assert result.status_code == 201, result.text
+        return batch.json(), result.json()
+
+    return do
 
 
 @pytest.fixture

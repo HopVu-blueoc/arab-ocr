@@ -3,11 +3,10 @@ from PIL import Image as PILImage
 
 
 @pytest.fixture
-def client_with_lines(client, tmp_path):
-    d = tmp_path / "in"
-    d.mkdir()
-    PILImage.new("RGB", (1000, 400), "white").save(d / "a.png")
-    batch = client.post("/api/batches", json={"name": "b", "source_dir": str(d)}).json()
+def client_with_lines(client, upload, tmp_path):
+    path = tmp_path / "a.png"
+    PILImage.new("RGB", (1000, 400), "white").save(path)
+    batch, _ = upload("b", [path])
     image_id = client.get(f"/api/batches/{batch['id']}/images").json()[0]["id"]
     return client, client.get(f"/api/images/{image_id}").json()
 
@@ -38,9 +37,7 @@ def test_clearing_correction_resets_to_unreviewed(client_with_lines):
 
 def test_approving_a_line_without_editing(client_with_lines):
     client, image = client_with_lines
-    body = client.patch(
-        f"/api/lines/{image['lines'][0]['id']}", json={"status": "approved"}
-    ).json()
+    body = client.patch(f"/api/lines/{image['lines'][0]['id']}", json={"status": "approved"}).json()
     assert body["status"] == "approved"
     assert body["corrected_text"] is None
 

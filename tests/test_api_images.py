@@ -3,11 +3,10 @@ from PIL import Image as PILImage
 
 
 @pytest.fixture
-def image_id(client, tmp_path) -> int:
-    d = tmp_path / "in"
-    d.mkdir()
-    PILImage.new("RGB", (1000, 400), "white").save(d / "a.png")
-    batch = client.post("/api/batches", json={"name": "b", "source_dir": str(d)}).json()
+def image_id(client, upload, tmp_path) -> int:
+    path = tmp_path / "a.png"
+    PILImage.new("RGB", (1000, 400), "white").save(path)
+    batch, _ = upload("b", [path])
     return client.get(f"/api/batches/{batch['id']}/images").json()[0]["id"]
 
 

@@ -4,21 +4,20 @@ from pathlib import Path
 from PIL import Image as PILImage
 
 
-def _seed(client, tmp_path) -> int:
-    d = tmp_path / "in"
-    d.mkdir()
-    PILImage.new("RGB", (1000, 400), "white").save(d / "page-1.png")
-    batch = client.post("/api/batches", json={"name": "export-me", "source_dir": str(d)}).json()
+def _seed(client, upload, tmp_path) -> int:
+    path = tmp_path / "page-1.png"
+    PILImage.new("RGB", (1000, 400), "white").save(path)
+    batch, _ = upload("export-me", [path])
     image = client.get(f"/api/batches/{batch['id']}/images").json()[0]
     detail = client.get(f"/api/images/{image['id']}").json()
     client.patch(f"/api/lines/{detail['lines'][0]['id']}", json={"corrected_text": "نص مصحح"})
     return batch["id"]
 
 
-def test_jsonl_export_is_utf8_and_keeps_both_texts(client, tmp_path, session_factory):
+def test_jsonl_export_is_utf8_and_keeps_both_texts(client, upload, tmp_path, session_factory):
     from app.exporters import export_jsonl
 
-    batch_id = _seed(client, tmp_path)
+    batch_id = _seed(client, upload, tmp_path)
     out = tmp_path / "out"
     with session_factory() as session:
         path = export_jsonl(session, batch_id, out)
@@ -35,10 +34,10 @@ def test_jsonl_export_is_utf8_and_keeps_both_texts(client, tmp_path, session_fac
     assert len(record["lines"][0]["polygon"]) == 4
 
 
-def test_txt_export_uses_final_text_in_reading_order(client, tmp_path, session_factory):
+def test_txt_export_uses_final_text_in_reading_order(client, upload, tmp_path, session_factory):
     from app.exporters import export_txt
 
-    batch_id = _seed(client, tmp_path)
+    batch_id = _seed(client, upload, tmp_path)
     out = tmp_path / "out"
     with session_factory() as session:
         directory = export_txt(session, batch_id, out)
