@@ -21,12 +21,20 @@ export function ReviewPage({
   const { selectedId, select } = useSelection();
 
   useEffect(() => {
+    let cancelled = false;
     setImage(null);
     setError(null);
     select(null);
     getImage(imageId)
-      .then(setImage)
-      .catch((e: Error) => setError(e.message));
+      .then((img) => {
+        if (!cancelled) setImage(img);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [imageId, select]);
 
   // OCR is often still queued or running when the reviewer clicks an image,
@@ -34,12 +42,18 @@ export function ReviewPage({
   // needed an F5. Re-fetch until the status is terminal, then stop.
   useEffect(() => {
     if (!isProcessing(image?.status)) return;
+    let cancelled = false;
     const timer = setInterval(() => {
       getImage(imageId)
-        .then(setImage)
+        .then((img) => {
+          if (!cancelled) setImage(img);
+        })
         .catch(() => {}); // a transient failure just means the next tick retries
     }, REVIEW_POLL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [imageId, image?.status]);
 
   const replaceLine = (updated: LineDto) =>
