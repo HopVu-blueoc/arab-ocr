@@ -25,6 +25,11 @@ def session(engine):
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("JOB_BACKEND", "inline")  # never touch Redis from tests
+    # Pin explicitly: pydantic-settings falls back to the developer's real
+    # .env for anything not set here, so a local STORAGE_BACKEND=s3 override
+    # (for running the app against RustFS) would otherwise leak into tests
+    # and break the "no object store needed for tests" guarantee.
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
     from app.config import get_settings
 
     get_settings.cache_clear()

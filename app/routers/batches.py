@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.db import SessionDep
 from app.dispatch import enqueue_image
 from app.exporters import export_jsonl, export_txt
-from app.models import Batch, Image, ImageStatus
+from app.models import Batch, Image, ImageStatus, Line
 from app.schemas import BatchCreate, BatchOut, ImageOut, UploadFailure, UploadResult
 from app.storage import get_storage
 from app.uploads import UploadRejected, display_name_for, register_image, store_upload
@@ -131,6 +131,41 @@ def list_images(batch_id: int, session: SessionDep) -> list[Image]:
     return session.exec(
         select(Image).where(Image.batch_id == batch_id).order_by(Image.filename)
     ).all()
+
+
+@router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_batch(batch_id: int, session: SessionDep) -> None:
+    """Permanently delete a batch: its lines, images, stored objects, then itself.
+
+    No ORM cascade is configured, so this is explicit and ordered for FK
+    constraints: children before parents. An image mid-OCR when its batch is
+    deleted needs no special handling - run_ocr_for_image already no-ops if
+    the row is gone by the time the task runs.
+    """
+    batch = session.get(Batch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    # These models have plain FK columns with no ORM relationship() declared,
+    # so the session doesn't know the dependency order and won't sequence
+    # deletes itself - each generation is deleted and flushed before the
+    # next, since SQLite enforces the constraint at flush time.
+    storage = get_storage()
+    images = session.exec(select(Image).where(Image.batch_id == batch_id)).all()
+    image_ids = [image.id for image in images]
+
+    if image_ids:
+        for line in session.exec(select(Line).where(Line.image_id.in_(image_ids))).all():
+            session.delete(line)
+        session.flush()
+
+        for image in images:
+            storage.delete(image.path)
+            session.delete(image)
+        session.flush()
+
+    session.delete(batch)
+    session.commit()
 
 
 class ExportRequest(BaseModel):
