@@ -37,6 +37,8 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .batch-item { display: flex; flex-direction: column; align-items: flex-start;
   gap: 2px; padding: 8px; border: 1px solid #262a31; border-radius: 6px;
   background: #171a1f; color: var(--fg); cursor: pointer; text-align: start; }
+.batch-item { width: 100%; }
+.batch-item-active { outline: 2px solid var(--accent); background: #1b2027; }
 .muted { color: var(--muted); font-size: 12px; }
 
 .app-main { display: grid; grid-template-rows: auto 1fr; min-height: 0; }

@@ -172,6 +172,17 @@ export function BatchList({
               {b.done_count + b.approved_count}/{b.image_count} done
               {b.failed_count > 0 ? ` · ${b.failed_count} failed` : ""}
             </span>
+            <div className="batch-bar">
+              <span
+                style={{
+                  width: `${
+                    b.image_count === 0
+                      ? 0
+                      : ((b.done_count + b.approved_count) / b.image_count) * 100
+                  }%`,
+                }}
+              />
+            </div>
           </button>
           <div className="batch-exports">
             <button onClick={() => runExport(b.id, "jsonl")}>JSONL</button>
