@@ -2,9 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-docker compose up -d redis
+docker compose up -d redis rustfs
 until docker exec arabic-ocr-redis redis-cli ping >/dev/null 2>&1; do
   echo "waiting for redis..."
+  sleep 1
+done
+until curl -sf http://localhost:9000/health >/dev/null 2>&1; do
+  echo "waiting for rustfs..."
   sleep 1
 done
 
