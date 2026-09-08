@@ -91,6 +91,22 @@ services:
       rustfs:
         condition: service_healthy
 
+  flower:
+    image: arabic-ocr-api   # same image as api/worker; flower isn't a
+                             # project dependency, `uv run --with` overlays
+                             # it for just this one invocation
+    platform: linux/amd64   # see `api`'s platform note - same constraint
+    container_name: arabic-ocr-flower
+    command: ["uv", "run", "--with", "flower",
+      "celery", "-A", "app.worker.celery_app.celery", "flower", "--port=5555"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: .
