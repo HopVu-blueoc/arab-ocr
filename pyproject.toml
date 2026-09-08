@@ -5,6 +5,7 @@ description = "OCR Arabic images with PaddleOCR and review them side by side"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.43.89",
     "celery[redis]>=5.6.3",
     "fastapi>=0.141.1",
     "paddleocr>=3.7.0",

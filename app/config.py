@@ -12,6 +12,21 @@ class Settings(BaseSettings):
     job_backend: str = "inline"  # inline | celery
     ocr_device: str = "cpu"
 
+    # local = a directory under DATA_DIR (dev default; tests and dev.sh must
+    # not need an object store running). s3 = any S3-compatible store; on-prem
+    # this is RustFS. See docker-compose.yml.
+    storage_backend: str = "local"  # local | s3
+    s3_endpoint: str = "http://localhost:9000"
+    s3_bucket: str = "ocr-images"
+    s3_region: str = "us-east-1"
+    # Never commit real values - this repo is public. Set them in .env.
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+
+    # Per-file upload cap. Enforced while streaming, so an oversize file never
+    # gets fully written. Scene photos from a phone are 3-8MB.
+    max_upload_mb: int = 25
+
     # Which OcrEngine to build. "paddle" = the detector+CRNN pipeline below
     # (fast, CPU-friendly, Arabic capped at a 7.6MB model). "paddle_vl" =
     # PaddleOCR-VL, a ~1B-param vision-language model that has actual
