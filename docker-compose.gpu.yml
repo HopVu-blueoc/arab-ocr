@@ -1,0 +1,19 @@
+# GPU overlay - UNVERIFIED, see docker/api.gpu.Dockerfile's header comment.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+#
+# Needs the NVIDIA Container Toolkit installed on the host so the Docker
+# daemon can hand a GPU to a container at all - this file only asks for one,
+# it doesn't install the driver support that makes the ask meaningful.
+services:
+  worker:
+    build:
+      dockerfile: docker/api.gpu.Dockerfile
+    environment:
+      OCR_DEVICE: gpu:0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

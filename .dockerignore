@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+/data/
+.env
+.DS_Store
+.serena/
+.worktrees/
+.git/
+.pytest_cache/
+.ruff_cache/
+
+# frontend
+node_modules/
+frontend/dist/
+
+# docs/dev-only
+docs/
+tests/data/
+scripts/

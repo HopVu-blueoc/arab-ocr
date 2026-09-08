@@ -30,6 +30,81 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    # paddlepaddle publishes Linux wheels for x86_64 only - no linux/arm64
+    # build exists, so pin explicitly rather than silently picking up
+    # whatever the host's native arch is (matters when building on Apple
+    # Silicon; the real deployment target is an x86_64 box regardless).
+    platform: linux/amd64
+    image: arabic-ocr-api
+    container_name: arabic-ocr-api
+    ports:
+      - "8000:8000"
+    environment: &backend-env
+      DATA_DIR: /app/data
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT: http://rustfs:9000   # service name, not localhost
+      S3_BUCKET: ${S3_BUCKET:-ocr-images}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-rustfsadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-rustfsadmin}
+      REDIS_URL: redis://redis:6379/0
+      JOB_BACKEND: celery
+      OCR_DEVICE: ${OCR_DEVICE:-cpu}
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: arabic-ocr-api   # same image as `api` - build is deduplicated by
+                             # compose since context+dockerfile are identical
+    platform: linux/amd64   # see `api`'s platform note - same constraint
+    container_name: arabic-ocr-worker
+    command: ["celery", "-A", "app.worker.celery_app.celery", "worker",
+      "--loglevel=info", "--pool=prefork", "--concurrency=2"]
+    environment: *backend-env
+    volumes:
+      - app-data:/app/data
+      # PaddleX/PaddleOCR model cache - without this, every container
+      # recreation re-downloads ~100MB+ of models. Only `worker` loads OCR
+      # models: `api` always dispatches to Celery here (JOB_BACKEND=celery),
+      # so it never touches this path.
+      - paddle-models:/root/.paddlex
+      - paddle-models-ocr:/root/.paddleocr
+    depends_on:
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: arabic-ocr-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   redis-data:
   rustfs-data:
+  app-data:
+  paddle-models:
+  paddle-models-ocr:

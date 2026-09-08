@@ -5,7 +5,9 @@ OCR a folder of Arabic images with PaddleOCR, then verify the output side by sid
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or any
-  Docker Engine) — running, for Redis. `docker info` should succeed.
+  Docker Engine) — running. `docker info` should succeed. The macOS dev setup
+  below only uses it for Redis and RustFS; "Deploying with Docker" further
+  down runs the entire app through it instead.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python
   package/version manager.
 - Node.js 20+ and npm, for the frontend.
@@ -178,6 +180,60 @@ uv run uvicorn app.main:app --port 8000 --reload
 cd frontend && npm run dev
 ```
 
+## Deploying with Docker
+
+The full stack — frontend, API, Celery worker, Redis, RustFS — runs as one
+`docker compose` project, separate from the macOS dev setup above:
+
+```bash
+cp .env.example .env   # fill in real S3_ACCESS_KEY/S3_SECRET_KEY - this repo is public
+docker compose up -d --build
+```
+
+UI at <http://localhost>. The frontend container is the only one meant to be
+reached from outside: it's nginx, serving the built React app and reverse-
+proxying `/api/*` to the `api` container by service name, so the browser only
+ever talks to one origin and there is no CORS configuration to get right.
+`api` and `worker` run from the same image (`docker/api.Dockerfile`) — they
+share the whole codebase and dependencies, only the container's start command
+differs. Inside containers, `STORAGE_BACKEND` is always `s3` (pointed at the
+`rustfs` service) and `JOB_BACKEND` is always `celery` — the `local` backend
+and `inline` job backend exist for the no-Docker dev path above, not this one.
+
+Images build for `linux/amd64` explicitly (see `docker-compose.yml`):
+paddlepaddle ships no Linux ARM64 wheel, and the CUDA box below is x86_64
+regardless, so this isn't only an Apple Silicon workaround. Building on
+Apple Silicon runs under emulation and is noticeably slower than a native
+build — expect it, don't assume something's stuck.
+
+Two things persist across `docker compose down`/`up` via named volumes:
+`app-data` (the SQLite DB and exports — images themselves live in RustFS, not
+here) and the PaddleX/PaddleOCR model cache (`paddle-models`,
+`paddle-models-ocr`, mounted on `worker` only — `api` never loads OCR models
+in this configuration). Skipping this would mean redownloading ~100MB+ of
+models on every restart.
+
+`docker compose down -v` drops all of it, including RustFS's stored images —
+same irreversible tradeoff as deleting `data/` in the non-Docker setup.
+
+### GPU (CUDA)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+Swaps `worker` to `docker/api.gpu.Dockerfile` (an NVIDIA CUDA 12.6 base image
+plus `paddlepaddle-gpu==3.3.1`, installed from PaddlePaddle's own package
+index) and reserves a GPU via the NVIDIA Container Toolkit. **Unverified** —
+built against PaddlePaddle's documented install path, not tested against an
+actual GPU, since none was available while writing it. Sanity-check on the
+real box first:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm worker \
+  python -c "import paddle; paddle.utils.run_check()"
+```
+
 ## Review workflow
 
 1. Left sidebar → **Choose images** (multi-select) or **Choose a folder** (the
@@ -231,6 +287,8 @@ not depend on system fonts.
 
 ## Later: Ubuntu + CUDA
 
-Out of scope for now. The only device-aware line in the codebase is `OCR_DEVICE`
-in `.env` — set it to `gpu:0` and install the CUDA paddle build from
-PaddlePaddle's own index on that machine. Nothing else changes.
+Not running on GPU hardware yet, but no longer entirely unbuilt either: see
+"GPU (CUDA)" above for the Docker path (unverified — no GPU was available to
+test it against). Outside Docker, the only device-aware setting is
+`OCR_DEVICE` in `.env` — set it to `gpu:0` and install the CUDA paddle build
+from PaddlePaddle's own index on that machine; nothing else changes.
