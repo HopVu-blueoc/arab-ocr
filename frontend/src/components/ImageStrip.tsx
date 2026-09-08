@@ -16,9 +16,9 @@ export function ImageStrip({
           key={img.id}
           className={`strip-item status-${img.status} ${img.id === activeId ? "strip-active" : ""}`}
           onClick={() => onPick(img.id)}
-          title={img.error ?? img.status}
+          title={img.error ? `${img.filename} — ${img.error}` : `${img.filename} (${img.status})`}
         >
-          {img.filename}
+          <span className="strip-item-name">{img.filename}</span>
         </button>
       ))}
     </div>

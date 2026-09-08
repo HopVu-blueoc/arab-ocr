@@ -12,7 +12,9 @@ export function Toolbar({
   const reviewed = image.lines.filter((l) => l.status !== "unreviewed").length;
   return (
     <header className="toolbar">
-      <strong>{image.filename}</strong>
+      <strong className="toolbar-filename" title={image.filename}>
+        {image.filename}
+      </strong>
       <span className="muted">
         {reviewed}/{image.lines.length} lines touched · {image.status}
       </span>

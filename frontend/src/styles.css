@@ -48,8 +48,9 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .app-main { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
 .image-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px;
   border-block-end: 1px solid #262a31; }
-.strip-item { white-space: nowrap; padding: 4px 8px; border-radius: 999px;
+.strip-item { display: inline-block; max-width: 220px; padding: 4px 8px; border-radius: 999px;
   border: 1px solid #333842; background: #171a1f; color: var(--fg); cursor: pointer; }
+.strip-item-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .strip-active { outline: 2px solid var(--accent); }
 .status-failed { border-color: #ff6b6b; color: #ff6b6b; }
 .status-approved { border-color: #4caf50; color: #9ae6a0; }
@@ -82,7 +83,11 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .processing-note[hidden] { display: none; }
 .toolbar { display: flex; gap: 12px; align-items: center; padding: 8px 12px;
   border-block-end: 1px solid #262a31; }
-.toolbar-actions { margin-inline-start: auto; display: flex; gap: 6px; }
+/* min-width: 0 overrides flex's default auto, which otherwise refuses to
+   shrink below the filename's natural width and defeats the ellipsis. */
+.toolbar-filename { min-width: 0; max-width: 40%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.toolbar-actions { margin-inline-start: auto; display: flex; gap: 6px; flex-shrink: 0; }
 .toolbar-actions button { padding: 4px 10px; border-radius: 6px; border: 1px solid #333842;
   background: #1a1d23; color: var(--fg); cursor: pointer; }
 
