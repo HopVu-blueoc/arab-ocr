@@ -27,13 +27,17 @@ class Settings(BaseSettings):
     # gets fully written. Scene photos from a phone are 3-8MB.
     max_upload_mb: int = 25
 
-    # Which OcrEngine to build. "paddle" = the detector+CRNN pipeline below
-    # (fast, CPU-friendly, Arabic capped at a 7.6MB model). "paddle_vl" =
-    # PaddleOCR-VL, a ~1B-param vision-language model that has actual
-    # language context instead of per-crop character classification - see
-    # app/ocr/paddle_vl_engine.py for what that changes and its caveats.
-    # Not yet benchmarked on tests/data/pack1; expect it to be much slower
-    # on this Mac's CPU and to want the CUDA box to be practical at volume.
+    # Which OcrEngine to build.
+    #
+    # "paddle" (default, the only supported value for production) = the
+    # detector+CRNN pipeline configured below: arabic_PP-OCRv5_mobile_rec for
+    # recognition, PP-OCRv5_server_det for detection.
+    #
+    # "paddle_vl" = PaddleOCR-VL, a ~1B-param vision-language model.
+    # EXPERIMENTAL, not for on-prem deployment: it hangs on this Mac's CPU
+    # (see README) and at ~1B params it is too heavy for batch throughput on a
+    # large corpus. Kept wired up because it sits behind the OcrEngine
+    # protocol and costs nothing to leave in place.
     ocr_engine: str = "paddle"
     ocr_vl_model_name: str = "PaddleOCR-VL-1.6-0.9B"
     ocr_vl_backend: str = "native"

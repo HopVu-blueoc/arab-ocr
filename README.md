@@ -36,6 +36,34 @@ on `localhost:6379`, matching `REDIS_URL` in `.env.example`, so nothing else
 needs to change. To stop it: `docker compose down` (add `-v` to also drop its
 persisted data volume).
 
+### Storage
+
+Uploaded images go to object storage, selected by `STORAGE_BACKEND`:
+
+- **`local`** (default) — a directory under `DATA_DIR`. Needs nothing running,
+  which is why it is the default for `./scripts/dev.sh` and the test suite.
+- **`s3`** — any S3-compatible store. On-premise that is
+  [RustFS](https://github.com/rustfs/rustfs), started with the rest of the
+  stack via `docker compose up -d rustfs`. The bucket is created automatically
+  on first use — nothing to run by hand.
+
+RustFS over `pgsty/silo`: both are S3-compatible and the application cannot
+tell them apart, so this is only a default. RustFS is Apache-2.0; Silo is a
+MinIO fork under AGPL-3.0, whose network-service clause is a question corporate
+legal often refuses for on-premise commercial use. Switching is one
+`S3_ENDPOINT` change and a compose service — no application code differs, since
+`boto3` speaks plain S3.
+
+`Image.path` holds a **storage key** (`batch-<id>/<sha256>.<ext>`), not a
+filesystem path. Objects are named by content hash, so the store is free of
+filename collisions and of client-supplied names; the original filename is kept
+in the database for display. `DATA_DIR` still holds `app.db` and `exports/`
+under either backend — and the image directory too when `STORAGE_BACKEND=local`.
+
+Switching an existing install from `local` to `s3` (or the reverse) does not
+migrate objects, and there is no migration tooling: delete `data/app.db` and
+re-upload.
+
 The OCR models are pinned explicitly in `.env` rather than left to `lang=`
 defaults — in paddleocr 3.7.0 the default recogniser is `PP-OCRv6_medium_rec`,
 and PP-OCRv6's 50 languages are Chinese, Traditional Chinese, English,
@@ -71,7 +99,9 @@ Two real upgrade paths, in order of effort:
    Export gives `image → label`. A few thousand reviewed lines is the normal
    amount needed, and this is the only path that fixes the domain gap.
 2. **PaddleOCR-VL** — wired in (`app/ocr/paddle_vl_engine.py`,
-   `OCR_ENGINE=paddle_vl`), but **does not currently work on this Mac's CPU**.
+   `OCR_ENGINE=paddle_vl`) but **experimental and not used in production**: at
+   ~1B params it is far too slow for a large corpus on CPU, and it **does not
+   currently work on this Mac at all**.
    Tried on 2026-09-04: `pip install "paddlex[ocr]"` is required first (a
    `DependencyError` otherwise); after that the model downloads (~1.9GB) and
    loads its weights fine, but the forward pass hangs - the process sits in
@@ -150,11 +180,20 @@ cd frontend && npm run dev
 
 ## Review workflow
 
-1. Left sidebar → enter a batch name and the path of the image folder →
-   **Import folder**. Re-importing the same folder is a no-op: images are
-   deduplicated by sha256.
-2. Watch `done/total` climb. Failed images stay in the strip in red with the
-   error in their tooltip.
+1. Left sidebar → **Choose images** (multi-select) or **Choose a folder** (the
+   browser walks it for you) → give the batch a name → **Upload**. The files
+   are uploaded to the server, which stores each one in object storage and
+   queues it for OCR. Nothing depends on the browser and the API sharing a
+   filesystem, so this works unchanged when the API runs in a container.
+
+   Duplicate images are skipped by sha256 and reported — `2 skipped (already
+   imported)` means those exact bytes are already in the database, possibly
+   under a different batch. Files that are not readable images are listed
+   individually as rejected; one bad file never fails the rest of the upload.
+   Per-file size cap is `MAX_UPLOAD_MB` (default 25).
+2. The selected batch is outlined in the sidebar and its bar fills as images
+   finish. Failed images stay in the strip in red with the error in their
+   tooltip. The review pane refreshes itself while OCR is running — no reload.
 3. Pick an image. Left = original with polygon overlay (scroll to zoom, drag to
    pan, double-click to reset); right = a magnified crop of the selected line
    above one row per detected line, RTL.
