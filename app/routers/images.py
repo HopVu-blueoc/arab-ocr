@@ -1,5 +1,7 @@
 import mimetypes
+from collections.abc import Iterator
 from pathlib import Path
+from typing import BinaryIO
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,6 +17,24 @@ router = APIRouter(prefix="/api/images", tags=["images"])
 
 def line_out(line: Line) -> LineOut:
     return LineOut(**line.model_dump(), final_text=line.final_text)
+
+
+_CHUNK_SIZE = 1 << 16
+
+
+def _iter_and_close(stream: BinaryIO) -> Iterator[bytes]:
+    """Stream chunks from a storage object, guaranteeing it gets closed.
+
+    `StreamingResponse` never closes the body it wraps unless given a
+    `background` task, so without this the local backend leaks open file
+    descriptors and the S3 backend leaks `StreamingBody` connections -
+    on success, on a client disconnect, or on any exception mid-iteration.
+    """
+    try:
+        while chunk := stream.read(_CHUNK_SIZE):
+            yield chunk
+    finally:
+        stream.close()
 
 
 @router.get("/{image_id}", response_model=ImageDetailOut)
@@ -40,7 +60,7 @@ def get_image_file(image_id: int, session: SessionDep) -> StreamingResponse:
         # that the stored image is gone, and it is not a server fault.
         raise HTTPException(status_code=410, detail=f"stored image is gone: {image.path}") from None
     media_type = mimetypes.guess_type(Path(image.path).name)[0] or "application/octet-stream"
-    return StreamingResponse(stream, media_type=media_type)
+    return StreamingResponse(_iter_and_close(stream), media_type=media_type)
 
 
 APPROVABLE = {ImageStatus.done, ImageStatus.approved}
