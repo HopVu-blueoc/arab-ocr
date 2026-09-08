@@ -32,6 +32,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <BatchList
+        activeId={batchId}
         onPick={(id) => {
           setBatchId(id);
           setImageId(null);

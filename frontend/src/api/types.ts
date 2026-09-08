@@ -32,8 +32,15 @@ export interface BatchDto {
   source_dir: string;
   created_at: string;
   image_count: number;
-  skipped_count: number;
   done_count: number;
   approved_count: number;
   failed_count: number;
 }
+
+export type UploadFailureDto = { filename: string; reason: string };
+
+export type UploadResultDto = {
+  imported: number;
+  skipped: number;
+  failed: UploadFailureDto[];
+};

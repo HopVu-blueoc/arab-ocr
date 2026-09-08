@@ -18,11 +18,8 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const getBatches = () => json<BatchDto[]>("/api/batches");
 
-export const createBatch = (name: string, sourceDir: string) =>
-  json<BatchDto>("/api/batches", {
-    method: "POST",
-    body: JSON.stringify({ name, source_dir: sourceDir }),
-  });
+export const createBatch = (name: string) =>
+  json<BatchDto>("/api/batches", { method: "POST", body: JSON.stringify({ name }) });
 
 export const getBatchImages = (batchId: number) =>
   json<ImageDto[]>(`/api/batches/${batchId}/images`);
@@ -45,5 +42,4 @@ export const exportBatch = (batchId: number, format: "jsonl" | "txt") =>
     body: JSON.stringify({ format }),
   });
 
-export const pickPath = (kind: "folder" | "file") =>
-  json<{ path: string | null }>(`/api/picker/${kind}`, { method: "POST" });
+export { uploadImages } from "./uploads";

@@ -1,14 +1,33 @@
-import { useEffect, useState } from "react";
-import { createBatch, exportBatch, getBatches, pickPath } from "../api/client";
-import type { BatchDto } from "../api/types";
+import { useEffect, useRef, useState } from "react";
+import { createBatch, exportBatch, getBatches, uploadImages } from "../api/client";
+import { UPLOAD_CHUNK_SIZE, chunk, imageFilesFrom, summarizeUpload } from "../api/uploads";
+import type { BatchDto, UploadFailureDto } from "../api/types";
 
-export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
+// React's InputHTMLAttributes has no webkitdirectory, but it is a real
+// attribute Chromium and WebKit honour, and the browser walks the tree so the
+// server never has to.
+const DIRECTORY_ATTRS = {
+  webkitdirectory: "",
+  directory: "",
+} as unknown as React.InputHTMLAttributes<HTMLInputElement>;
+
+type Progress = { sent: number; total: number; fraction: number };
+
+export function BatchList({
+  activeId,
+  onPick,
+}: {
+  activeId: number | null;
+  onPick: (batchId: number) => void;
+}) {
   const [batches, setBatches] = useState<BatchDto[]>([]);
   const [name, setName] = useState("");
-  const [dir, setDir] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [picking, setPicking] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Bumped after a submit so picking the same folder again still fires change.
+  const [inputKey, setInputKey] = useState(0);
+  const nameTouched = useRef(false);
 
   const refresh = () => getBatches().then(setBatches).catch(() => {});
 
@@ -18,32 +37,53 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
     return () => clearInterval(timer);
   }, []);
 
-  async function browse(kind: "folder" | "file") {
-    setPicking(true);
-    setNotice(null);
-    try {
-      const { path } = await pickPath(kind);
-      if (path === null) return; // dialog cancelled
-      setDir(path);
-      if (!name.trim()) setName(path.split("/").filter(Boolean).pop() ?? "");
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPicking(false);
+  function choose(list: FileList | null) {
+    const picked = imageFilesFrom(list);
+    setFiles(picked);
+    setNotice(
+      list && picked.length < list.length
+        ? `${list.length - picked.length} non-image file(s) ignored`
+        : null,
+    );
+    if (!nameTouched.current && picked.length > 0) {
+      // webkitRelativePath is "folder/sub/file.png" for a directory pick.
+      const folder = picked[0].webkitRelativePath?.split("/")[0];
+      setName(folder || picked[0].name.replace(/\.[^.]+$/, ""));
     }
   }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
+    setNotice(null);
+    const total = files.length;
+    let imported = 0;
+    let skipped = 0;
+    const failed: UploadFailureDto[] = [];
+    let sent = 0;
+
     try {
-      const batch = await createBatch(name, dir);
+      const batch = await createBatch(name.trim());
+      for (const group of chunk(files, UPLOAD_CHUNK_SIZE)) {
+        const result = await uploadImages(batch.id, group, (fraction) =>
+          setProgress({ sent, total, fraction }),
+        );
+        imported += result.imported;
+        skipped += result.skipped;
+        failed.push(...result.failed);
+        sent += group.length;
+        setProgress({ sent, total, fraction: 1 });
+      }
+      setNotice(summarizeUpload({ imported, skipped, failed }));
       setName("");
-      setDir("");
+      setFiles([]);
+      nameTouched.current = false;
+      setInputKey((k) => k + 1);
       await refresh();
       onPick(batch.id);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -56,37 +96,70 @@ export function BatchList({ onPick }: { onPick: (batchId: number) => void }) {
     }
   }
 
+  const uploading = progress !== null;
+  const barFraction = progress
+    ? (progress.sent +
+        progress.fraction * Math.min(UPLOAD_CHUNK_SIZE, progress.total - progress.sent)) /
+      Math.max(progress.total, 1)
+    : 0;
+
   return (
     <aside className="batch-list">
       <form onSubmit={submit} className="batch-form">
-        <div className="browse-row">
-          <button type="button" disabled={picking} onClick={() => browse("folder")}>
-            📁 Folder…
-          </button>
-          <button type="button" disabled={picking} onClick={() => browse("file")}>
-            🖼 Image…
-          </button>
-        </div>
-        <input
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          placeholder="/path/to/images"
-          required
-        />
+        <label className="file-pick">
+          <span>🖼 Choose images</span>
+          <input
+            key={`files-${inputKey}`}
+            type="file"
+            multiple
+            accept="image/*"
+            disabled={uploading}
+            onChange={(e) => choose(e.target.files)}
+          />
+        </label>
+        <label className="file-pick">
+          <span>📁 Choose a folder</span>
+          <input
+            key={`dir-${inputKey}`}
+            type="file"
+            multiple
+            disabled={uploading}
+            onChange={(e) => choose(e.target.files)}
+            {...DIRECTORY_ATTRS}
+          />
+        </label>
+        {files.length > 0 && <p className="muted">{files.length} image(s) ready</p>}
         <input
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            nameTouched.current = true;
+            setName(e.target.value);
+          }}
           placeholder="Batch name"
           required
         />
-        <button disabled={busy || !dir || !name}>
-          {busy ? "Importing…" : "Import"}
+        <button disabled={uploading || files.length === 0 || !name.trim()}>
+          {uploading ? "Uploading…" : "Upload"}
         </button>
+        {progress && (
+          <div className="upload-progress">
+            <div className="batch-bar">
+              <span style={{ width: `${barFraction * 100}%` }} />
+            </div>
+            <p className="muted">
+              {progress.sent}/{progress.total} uploaded
+            </p>
+          </div>
+        )}
       </form>
       {notice && <p className="batch-notice">{notice}</p>}
       {batches.map((b) => (
         <div key={b.id} className="batch-entry">
-          <button className="batch-item" onClick={() => onPick(b.id)}>
+          <button
+            className={`batch-item${b.id === activeId ? " batch-item-active" : ""}`}
+            aria-current={b.id === activeId}
+            onClick={() => onPick(b.id)}
+          >
             <span>{b.name}</span>
             <span className="muted">
               {b.done_count + b.approved_count}/{b.image_count} done
