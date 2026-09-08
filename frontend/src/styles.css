@@ -68,6 +68,18 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .line-save-failed .line-score { color: #ff6b6b; font-size: 11px; }
 
 .review-shell { display: grid; grid-template-rows: auto 1fr; min-height: 0; height: 100%; }
+.review-shell { grid-template-rows: auto auto 1fr; }
+/* Pin each child to its row explicitly: when .processing-note is [hidden] it
+   is removed from grid auto-placement (display: none is not a grid item),
+   which would otherwise shift .toolbar and .review-split up a row and leave
+   the 1fr row empty - the same row-shift bug this banner pattern exists to
+   avoid, just one level down. */
+.review-shell > .processing-note { grid-row: 1; }
+.review-shell > .toolbar { grid-row: 2; }
+.review-shell > .review-split { grid-row: 3; }
+.processing-note { margin: 0; padding: 4px 12px; font-size: 12px; color: var(--muted);
+  border-block-end: 1px solid #262a31; }
+.processing-note[hidden] { display: none; }
 .toolbar { display: flex; gap: 12px; align-items: center; padding: 8px 12px;
   border-block-end: 1px solid #262a31; }
 .toolbar-actions { margin-inline-start: auto; display: flex; gap: 6px; }

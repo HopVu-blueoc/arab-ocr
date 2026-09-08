@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getImage, updateImageStatus, updateLine } from "../api/client";
+import { REVIEW_POLL_MS, isProcessing } from "../api/status";
 import type { ImageDetailDto, LineDto } from "../api/types";
 import { ImageCanvas } from "../components/ImageCanvas";
 import { LineCrop } from "../components/LineCrop";
@@ -27,6 +28,19 @@ export function ReviewPage({
       .then(setImage)
       .catch((e: Error) => setError(e.message));
   }, [imageId, select]);
+
+  // OCR is often still queued or running when the reviewer clicks an image,
+  // and the fetch above would then be the only one - which is why the old UI
+  // needed an F5. Re-fetch until the status is terminal, then stop.
+  useEffect(() => {
+    if (!isProcessing(image?.status)) return;
+    const timer = setInterval(() => {
+      getImage(imageId)
+        .then(setImage)
+        .catch(() => {}); // a transient failure just means the next tick retries
+    }, REVIEW_POLL_MS);
+    return () => clearInterval(timer);
+  }, [imageId, image?.status]);
 
   const replaceLine = (updated: LineDto) =>
     setImage((prev) =>
@@ -56,6 +70,9 @@ export function ReviewPage({
 
   return (
     <div className="review-shell">
+      <p className="processing-note" hidden={!isProcessing(image.status)}>
+        OCR running — this view updates itself.
+      </p>
       <Toolbar image={image} onApprove={approveImage} onNext={onNextImage} />
       <div className="review-split">
         <section className="pane pane-image">
