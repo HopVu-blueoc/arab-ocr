@@ -60,9 +60,11 @@ export function BatchList({
     let skipped = 0;
     const failed: UploadFailureDto[] = [];
     let sent = 0;
+    let batchId: number | null = null;
 
     try {
       const batch = await createBatch(name.trim());
+      batchId = batch.id;
       for (const group of chunk(files, UPLOAD_CHUNK_SIZE)) {
         const result = await uploadImages(batch.id, group, (fraction) =>
           setProgress({ sent, total, fraction }),
@@ -74,15 +76,20 @@ export function BatchList({
         setProgress({ sent, total, fraction: 1 });
       }
       setNotice(summarizeUpload({ imported, skipped, failed }));
-      setName("");
-      setFiles([]);
-      nameTouched.current = false;
-      setInputKey((k) => k + 1);
       await refresh();
       onPick(batch.id);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setNotice(
+        batchId === null
+          ? errorMessage
+          : `${errorMessage} — some files may have already been uploaded to this batch; check the sidebar before retrying.`,
+      );
     } finally {
+      setFiles([]);
+      setName("");
+      nameTouched.current = false;
+      setInputKey((k) => k + 1);
       setProgress(null);
     }
   }
