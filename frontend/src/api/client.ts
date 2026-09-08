@@ -18,6 +18,12 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const getBatches = () => json<BatchDto[]>("/api/batches");
 
+export const deleteBatch = async (batchId: number): Promise<void> => {
+  const res = await fetch(`/api/batches/${batchId}`, { method: "DELETE" });
+  // 204 No Content has no body - json<T>() would throw trying to parse it.
+  if (!res.ok) throw new Error(`DELETE /api/batches/${batchId} -> ${res.status}`);
+};
+
 export const createBatch = (name: string) =>
   json<BatchDto>("/api/batches", { method: "POST", body: JSON.stringify({ name }) });
 

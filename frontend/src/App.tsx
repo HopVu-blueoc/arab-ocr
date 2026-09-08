@@ -37,6 +37,16 @@ export default function App() {
           setBatchId(id);
           setImageId(null);
         }}
+        onDeleted={(id) => {
+          // The deleted batch was the one open in the review pane - there is
+          // nothing left to show, so return to the empty state rather than
+          // keep polling a batch that no longer exists.
+          if (id === batchId) {
+            setBatchId(null);
+            setImages([]);
+            setImageId(null);
+          }
+        }}
       />
       <main className="app-main">
         <ImageStrip images={images} activeId={imageId} onPick={setImageId} />

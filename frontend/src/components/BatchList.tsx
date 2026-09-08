@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createBatch, exportBatch, getBatches, uploadImages } from "../api/client";
+import { createBatch, deleteBatch, exportBatch, getBatches, uploadImages } from "../api/client";
 import { UPLOAD_CHUNK_SIZE, chunk, imageFilesFrom, summarizeUpload } from "../api/uploads";
 import type { BatchDto, UploadFailureDto } from "../api/types";
 
@@ -16,9 +16,11 @@ type Progress = { sent: number; total: number; fraction: number };
 export function BatchList({
   activeId,
   onPick,
+  onDeleted,
 }: {
   activeId: number | null;
   onPick: (batchId: number) => void;
+  onDeleted: (batchId: number) => void;
 }) {
   const [batches, setBatches] = useState<BatchDto[]>([]);
   const [name, setName] = useState("");
@@ -28,6 +30,8 @@ export function BatchList({
   // Bumped after a submit so picking the same folder again still fires change.
   const [inputKey, setInputKey] = useState(0);
   const nameTouched = useRef(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const refresh = () => getBatches().then(setBatches).catch(() => {});
 
@@ -103,6 +107,51 @@ export function BatchList({
     }
   }
 
+  function toggleSelected(batchId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  }
+
+  async function deleteOne(batch: BatchDto) {
+    const confirmed = confirm(
+      `Delete batch "${batch.name}" and its ${batch.image_count} image(s)? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deleteBatch(batch.id);
+      if (batch.id === activeId) onDeleted(batch.id);
+      await refresh();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const names = batches.filter((b) => selected.has(b.id)).map((b) => b.name);
+    const confirmed = confirm(
+      `Delete ${ids.length} batch(es)? This cannot be undone.\n\n${names.join("\n")}`,
+    );
+    if (!confirmed) return;
+
+    const results = await Promise.allSettled(ids.map((id) => deleteBatch(id)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    setNotice(
+      failed > 0
+        ? `${ids.length - failed}/${ids.length} batch(es) deleted, ${failed} failed`
+        : `${ids.length} batch(es) deleted`,
+    );
+    if (activeId !== null && selected.has(activeId)) onDeleted(activeId);
+    setSelected(new Set());
+    setSelectMode(false);
+    await refresh();
+  }
+
   const uploading = progress !== null;
   const barFraction = progress
     ? (progress.sent +
@@ -160,33 +209,76 @@ export function BatchList({
         )}
       </form>
       {notice && <p className="batch-notice">{notice}</p>}
+      <div className="batch-list-toolbar">
+        {selectMode ? (
+          <>
+            <button
+              className="batch-delete-selected"
+              disabled={selected.size === 0}
+              onClick={deleteSelected}
+            >
+              Delete selected ({selected.size})
+            </button>
+            <button
+              onClick={() => {
+                setSelectMode(false);
+                setSelected(new Set());
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          batches.length > 0 && <button onClick={() => setSelectMode(true)}>Select</button>
+        )}
+      </div>
       {batches.map((b) => (
         <div key={b.id} className="batch-entry">
-          <button
-            className={`batch-item${b.id === activeId ? " batch-item-active" : ""}`}
-            aria-current={b.id === activeId}
-            onClick={() => onPick(b.id)}
-          >
-            <span>{b.name}</span>
-            <span className="muted">
-              {b.done_count + b.approved_count}/{b.image_count} done
-              {b.failed_count > 0 ? ` · ${b.failed_count} failed` : ""}
-            </span>
-            <div className="batch-bar">
-              <span
-                style={{
-                  width: `${
-                    b.image_count === 0
-                      ? 0
-                      : ((b.done_count + b.approved_count) / b.image_count) * 100
-                  }%`,
-                }}
+          <div className="batch-row">
+            {selectMode && (
+              <input
+                type="checkbox"
+                className="batch-checkbox"
+                checked={selected.has(b.id)}
+                onChange={() => toggleSelected(b.id)}
+                aria-label={`Select batch ${b.name}`}
               />
-            </div>
-          </button>
+            )}
+            <button
+              className={`batch-item${b.id === activeId ? " batch-item-active" : ""}`}
+              aria-current={b.id === activeId}
+              onClick={() => (selectMode ? toggleSelected(b.id) : onPick(b.id))}
+            >
+              <span>{b.name}</span>
+              <span className="muted">
+                {b.done_count + b.approved_count}/{b.image_count} done
+                {b.failed_count > 0 ? ` · ${b.failed_count} failed` : ""}
+              </span>
+              <div className="batch-bar">
+                <span
+                  style={{
+                    width: `${
+                      b.image_count === 0
+                        ? 0
+                        : ((b.done_count + b.approved_count) / b.image_count) * 100
+                    }%`,
+                  }}
+                />
+              </div>
+            </button>
+          </div>
           <div className="batch-exports">
             <button onClick={() => runExport(b.id, "jsonl")}>JSONL</button>
             <button onClick={() => runExport(b.id, "txt")}>.txt</button>
+            {!selectMode && (
+              <button
+                className="batch-delete"
+                title={`Delete batch "${b.name}"`}
+                onClick={() => deleteOne(b)}
+              >
+                🗑
+              </button>
+            )}
           </div>
         </div>
       ))}
