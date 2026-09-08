@@ -51,17 +51,25 @@ class PaddleOcrEngine:
                 use_doc_orientation_classify=s.ocr_use_doc_orientation_classify,
                 use_doc_unwarping=s.ocr_use_doc_unwarping,
                 use_textline_orientation=s.ocr_use_textline_orientation,
+                # A confirmed regression in paddlepaddle 3.3.1 + paddleocr
+                # 3.7.0's oneDNN/PIR conversion path crashes CPU inference
+                # with "NotImplementedError: ConvertPirAttribute2Runtime
+                # Attribute not support [pir::ArrayAttribute<...>]" - this is
+                # not this project's device, it's upstream
+                # (github.com/PaddlePaddle/Paddle/issues/77340), reproduced
+                # here in Docker and confirmed fixed by disabling oneDNN.
+                enable_mkldnn=False,
             )
         if s.ocr_second_pass:
             from paddleocr import TextRecognition
 
             if self._arabic_rec is None:
                 self._arabic_rec = TextRecognition(
-                    model_name=s.ocr_rec_model, device=s.ocr_device
+                    model_name=s.ocr_rec_model, device=s.ocr_device, enable_mkldnn=False
                 )
             if self._latin_rec is None:
                 self._latin_rec = TextRecognition(
-                    model_name=s.ocr_latin_rec_model, device=s.ocr_device
+                    model_name=s.ocr_latin_rec_model, device=s.ocr_device, enable_mkldnn=False
                 )
 
     # ------------------------------------------------------------- stage 1
@@ -134,9 +142,7 @@ class PaddleOcrEngine:
             return line
         if best.score < line.score + self.settings.ocr_rescue_min_gain:
             return line
-        return OcrLine(
-            text=best.text, score=best.score, polygon=line.polygon, source=best.source
-        )
+        return OcrLine(text=best.text, score=best.score, polygon=line.polygon, source=best.source)
 
     # ----------------------------------------------------------------- run
     def run(self, image_path: Path) -> OcrResult:
@@ -160,9 +166,7 @@ class PaddleOcrEngine:
 
         # Final quality gate, applied after the rescue so a weak first read
         # gets its second chance before being discarded.
-        lines = [
-            ln for ln in lines if ln.score >= s.ocr_rec_score_thresh and has_content(ln.text)
-        ]
+        lines = [ln for ln in lines if ln.score >= s.ocr_rec_score_thresh and has_content(ln.text)]
 
         height, width = image.shape[:2]
         return OcrResult(width=width, height=height, lines=sort_reading_order(lines))
