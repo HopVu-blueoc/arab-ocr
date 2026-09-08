@@ -73,7 +73,7 @@ export function BatchList({
         skipped += result.skipped;
         failed.push(...result.failed);
         sent += group.length;
-        setProgress({ sent, total, fraction: 1 });
+        setProgress({ sent, total, fraction: 0 });
       }
       setNotice(summarizeUpload({ imported, skipped, failed }));
       await refresh();

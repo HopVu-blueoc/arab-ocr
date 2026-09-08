@@ -58,7 +58,7 @@ def get_image_file(image_id: int, session: SessionDep) -> StreamingResponse:
     except ObjectNotFound:
         # 410 rather than 500: a vanished object is the reviewer's only signal
         # that the stored image is gone, and it is not a server fault.
-        raise HTTPException(status_code=410, detail=f"stored image is gone: {image.path}") from None
+        raise HTTPException(status_code=410, detail="stored image is gone") from None
     media_type = mimetypes.guess_type(Path(image.path).name)[0] or "application/octet-stream"
     return StreamingResponse(_iter_and_close(stream), media_type=media_type)
 
