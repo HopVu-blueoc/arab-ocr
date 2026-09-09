@@ -33,6 +33,10 @@ class UploadResult(BaseModel):
     failed: list[UploadFailure] = []
 
 
+class DetectBoxRequest(BaseModel):
+    polygon: list[list[float]]
+
+
 class LineOut(BaseModel):
     id: int
     reading_order: int

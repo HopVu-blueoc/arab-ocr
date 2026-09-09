@@ -8,9 +8,11 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select
 
 from app.db import SessionDep
-from app.dispatch import enqueue_image
+from app.dispatch import enqueue_image, get_engine
 from app.models import Image, ImageStatus, Line, utcnow
-from app.schemas import ImageDetailOut, ImageOut, ImageUpdate, LineOut
+from app.ocr.crops import load_bgr
+from app.ocr.reading_order import reorder_lines
+from app.schemas import DetectBoxRequest, ImageDetailOut, ImageOut, ImageUpdate, LineOut
 from app.storage import ObjectNotFound, get_storage
 
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -111,3 +113,55 @@ def retry_image(image_id: int, session: SessionDep) -> Image:
     enqueue_image(image.id)
     session.refresh(image)  # the inline job backend advances status synchronously
     return image
+
+
+MIN_MANUAL_BOX_SIDE = 8  # image pixels; a stray click, not a drag
+
+
+@router.post("/{image_id}/lines/detect-box", response_model=list[LineOut])
+def detect_box(image_id: int, payload: DetectBoxRequest, session: SessionDep) -> list[LineOut]:
+    image = session.get(Image, image_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="image not found")
+
+    xs = [p[0] for p in payload.polygon]
+    ys = [p[1] for p in payload.polygon]
+    if max(xs) - min(xs) < MIN_MANUAL_BOX_SIDE or max(ys) - min(ys) < MIN_MANUAL_BOX_SIDE:
+        raise HTTPException(status_code=400, detail="box is too small")
+
+    engine = get_engine()
+    if not hasattr(engine, "recognize_quad"):
+        raise HTTPException(
+            status_code=501,
+            detail="manual box detection isn't supported with the paddle_vl engine",
+        )
+
+    with get_storage().as_local_path(image.path) as local_path:
+        array = load_bgr(local_path)
+
+    polygon = [(float(x), float(y)) for x, y in payload.polygon]
+    candidate = engine.recognize_quad(array, polygon)
+    if candidate is None:
+        raise HTTPException(status_code=422, detail="no text found in that region")
+
+    session.add(
+        Line(
+            image_id=image.id,
+            reading_order=0,  # placeholder; overwritten by the re-sort below
+            rec_text=candidate.text,
+            score=candidate.score,
+            polygon=[[x, y] for x, y in polygon],
+        )
+    )
+    session.commit()
+
+    all_lines = session.exec(select(Line).where(Line.image_id == image_id)).all()
+    for index, line in enumerate(reorder_lines(all_lines)):
+        line.reading_order = index
+        session.add(line)
+    session.commit()
+
+    ordered = session.exec(
+        select(Line).where(Line.image_id == image_id).order_by(Line.reading_order)
+    ).all()
+    return [line_out(ln) for ln in ordered]
