@@ -22,7 +22,12 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .draw-box { fill: rgba(255, 193, 7, 0.12); stroke: #ffc107; stroke-width: 2;
   stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .draw-box-pending { stroke-dasharray: none; }
-.canvas-error { margin: 6px 0 0; padding: 4px 8px; font-size: 12px; color: #ff6b6b; }
+/* .canvas-frame's wrapper stretches to the pane's full height (needed so
+   pan/zoom works over the whole pane, not just the letterboxed image), which
+   would push a normal-flow error message far below the fold. Overlay it
+   instead, anchored to the frame itself rather than its tall child. */
+.canvas-error { position: absolute; left: 0; right: 0; bottom: 0; margin: 0;
+  padding: 4px 8px; font-size: 12px; color: #ff6b6b; background: rgba(20, 22, 26, 0.9); }
 
 .line-row { display: grid; grid-template-columns: 2rem 1fr 3rem; gap: 8px;
   align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
@@ -120,7 +125,7 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .batch-delete:hover { border-color: #ff6b6b; color: #ff6b6b; }
 .batch-notice { font-size: 11px; color: var(--muted); word-break: break-all; margin: 0 0 4px; }
 
-.canvas-frame { height: 100%; }
+.canvas-frame { height: 100%; position: relative; }
 /* react-zoom-pan-pinch sizes its wrapper/content to fit-content, which
    collapses to 0 around an aspect-ratio box with absolutely positioned
    children. Two-class selectors outrank the library's own rules. */

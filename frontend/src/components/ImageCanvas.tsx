@@ -81,6 +81,7 @@ export function ImageCanvas({
       setDraft(null);
     } catch (err) {
       setDrawError(err instanceof Error ? err.message : String(err));
+      setDraft(null); // per spec: a failed box is removed, not left dangling
     } finally {
       setPending(false);
     }
