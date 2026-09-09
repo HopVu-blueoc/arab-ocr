@@ -13,7 +13,7 @@ from app.ocr.crops import (
     quad_side_lengths,
     warp_quad,
 )
-from app.ocr.engine import OcrLine, OcrResult
+from app.ocr.engine import OcrLine, OcrResult, Polygon
 from app.ocr.reading_order import sort_reading_order
 
 
@@ -61,16 +61,10 @@ class PaddleOcrEngine:
                 enable_mkldnn=False,
             )
         if s.ocr_second_pass:
-            from paddleocr import TextRecognition
-
             if self._arabic_rec is None:
-                self._arabic_rec = TextRecognition(
-                    model_name=s.ocr_rec_model, device=s.ocr_device, enable_mkldnn=False
-                )
+                self._arabic_rec = self._build_recognizer(s.ocr_rec_model)
             if self._latin_rec is None:
-                self._latin_rec = TextRecognition(
-                    model_name=s.ocr_latin_rec_model, device=s.ocr_device, enable_mkldnn=False
-                )
+                self._latin_rec = self._build_recognizer(s.ocr_latin_rec_model)
 
     # ------------------------------------------------------------- stage 1
     def _detect_and_read(self, image_path: Path) -> list[OcrLine]:
@@ -119,10 +113,30 @@ class PaddleOcrEngine:
                 best = Candidate(text, score, source)
         return best
 
-    def _rescue(self, image: np.ndarray, line: OcrLine) -> OcrLine:
-        crop = warp_quad(image, line.polygon)
+    def _build_recognizer(self, model_name: str):
+        from paddleocr import TextRecognition
+
+        return TextRecognition(model_name=model_name, device=self.settings.ocr_device, enable_mkldnn=False)
+
+    def recognize_quad(self, image: np.ndarray, polygon: Polygon) -> Candidate | None:
+        """Run both recognisers on one perspective-corrected, upscaled quad.
+
+        Shared by the automatic rescue pass (`_rescue`, below) and the manual
+        box-detection endpoint. A manual box has no prior pipeline read to
+        compare against, so this returns the raw best candidate and leaves
+        "is it good enough to use" to the caller. Builds the recognisers on
+        first use regardless of `ocr_second_pass` - that setting only gates
+        the automatic pipeline's second pass, not a reviewer's explicit
+        request to recognize a region.
+        """
+        if self._arabic_rec is None:
+            self._arabic_rec = self._build_recognizer(self.settings.ocr_rec_model)
+        if self._latin_rec is None:
+            self._latin_rec = self._build_recognizer(self.settings.ocr_latin_rec_model)
+
+        crop = warp_quad(image, polygon)
         if crop.size == 0:
-            return line
+            return None
 
         prepared = preprocess_crop(
             crop,
@@ -133,12 +147,14 @@ class PaddleOcrEngine:
         variants = crop_variants(prepared)
 
         candidates = [
-            Candidate(line.text, line.score, "pipeline"),
             self._best_read(self._arabic_rec, variants, "arabic-rescue"),
             self._best_read(self._latin_rec, variants, "latin-rescue"),
         ]
-        best = pick_best(candidates)
-        if best is None or best.source == "pipeline":
+        return pick_best(candidates)
+
+    def _rescue(self, image: np.ndarray, line: OcrLine) -> OcrLine:
+        best = self.recognize_quad(image, line.polygon)
+        if best is None:
             return line
         if best.score < line.score + self.settings.ocr_rescue_min_gain:
             return line
