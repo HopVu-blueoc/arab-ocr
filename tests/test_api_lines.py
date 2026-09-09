@@ -45,3 +45,23 @@ def test_approving_a_line_without_editing(client_with_lines):
 def test_patch_unknown_line_is_404(client_with_lines):
     client, _ = client_with_lines
     assert client.patch("/api/lines/9999", json={"status": "approved"}).status_code == 404
+
+
+def test_delete_line_removes_it_and_closes_the_reading_order_gap(client_with_lines):
+    client, image = client_with_lines
+    lines = image["lines"]
+    assert len(lines) >= 2
+    victim = lines[0]
+
+    resp = client.delete(f"/api/lines/{victim['id']}")
+
+    assert resp.status_code == 200
+    remaining = resp.json()
+    assert victim["id"] not in [ln["id"] for ln in remaining]
+    assert len(remaining) == len(lines) - 1
+    assert [ln["reading_order"] for ln in remaining] == list(range(len(remaining)))
+
+
+def test_delete_unknown_line_is_404(client_with_lines):
+    client, _ = client_with_lines
+    assert client.delete("/api/lines/9999").status_code == 404
