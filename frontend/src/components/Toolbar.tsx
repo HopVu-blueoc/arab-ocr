@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { copyToClipboard, joinFinalText } from "../api/lines";
 import type { ImageDetailDto } from "../api/types";
 
 export function Toolbar({
@@ -13,6 +15,20 @@ export function Toolbar({
 }) {
   const reviewed = image.lines.filter((l) => l.status !== "unreviewed").length;
   const failed = image.status === "failed";
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [copyAllError, setCopyAllError] = useState<string | null>(null);
+
+  async function copyAll() {
+    try {
+      await copyToClipboard(joinFinalText(image.lines));
+      setCopyAllError(null);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1200);
+    } catch (err) {
+      setCopyAllError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <header className="toolbar">
       <strong className="toolbar-filename" title={image.filename}>
@@ -31,6 +47,13 @@ export function Toolbar({
             Retry OCR
           </button>
         )}
+        <button
+          onClick={copyAll}
+          disabled={image.lines.length === 0}
+          title={copyAllError ?? undefined}
+        >
+          {copiedAll ? "Copied ✓" : copyAllError ? "Copy failed ⚠" : "Copy all text"}
+        </button>
         <button onClick={onApprove} disabled={image.status === "approved"}>
           Approve image (A)
         </button>

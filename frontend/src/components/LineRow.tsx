@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { updateLine } from "../api/client";
+import { copyToClipboard } from "../api/lines";
 import type { LineDto } from "../api/types";
 import { useSelection } from "../store/selection";
 
@@ -15,7 +16,20 @@ export function LineRow({
   const [draft, setDraft] = useState(line.final_text);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const isSelected = line.id === selectedId;
+
+  async function copyText() {
+    try {
+      await copyToClipboard(line.final_text);
+      setCopyError(null);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch (err) {
+      setCopyError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   // A silently dropped save loses the reviewer's correction, so every write
   // reports failure in the row itself.
@@ -85,6 +99,9 @@ export function LineRow({
         {saving ? "…" : saveError ? "⚠ unsaved" : line.score.toFixed(2)}
       </span>
       <div className="line-actions">
+        <button onClick={copyText} title={copyError ?? "Copy this line's text"}>
+          {copied ? "✓" : copyError ? "⚠" : "📋"}
+        </button>
         <button onClick={approve} title="Mark this line correct">
           ✓
         </button>
