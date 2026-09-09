@@ -39,6 +39,15 @@ export const updateLine = (
   patch: { corrected_text?: string | null; status?: LineStatus },
 ) => json<LineDto>(`/api/lines/${lineId}`, { method: "PATCH", body: JSON.stringify(patch) });
 
+export const detectBox = (imageId: number, polygon: number[][]) =>
+  json<LineDto[]>(`/api/images/${imageId}/lines/detect-box`, {
+    method: "POST",
+    body: JSON.stringify({ polygon }),
+  });
+
+export const deleteLine = (lineId: number) =>
+  json<LineDto[]>(`/api/lines/${lineId}`, { method: "DELETE" });
+
 export const updateImageStatus = (imageId: number, status: ImageStatus) =>
   json<ImageDto>(`/api/images/${imageId}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
