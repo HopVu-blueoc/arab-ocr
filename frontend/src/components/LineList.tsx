@@ -4,15 +4,17 @@ import { LineRow } from "./LineRow";
 export function LineList({
   lines,
   onChange,
+  onDelete,
 }: {
   lines: LineDto[];
   onChange: (line: LineDto) => void;
+  onDelete: (lines: LineDto[]) => void;
 }) {
   if (lines.length === 0) return <p className="empty">No text detected.</p>;
   return (
     <div className="line-list">
       {lines.map((line) => (
-        <LineRow key={line.id} line={line} onChange={onChange} />
+        <LineRow key={line.id} line={line} onChange={onChange} onDelete={onDelete} />
       ))}
     </div>
   );

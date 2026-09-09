@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { updateLine } from "../api/client";
+import { deleteLine, updateLine } from "../api/client";
 import { copyToClipboard } from "../api/lines";
 import type { LineDto } from "../api/types";
 import { useSelection } from "../store/selection";
@@ -7,9 +7,11 @@ import { useSelection } from "../store/selection";
 export function LineRow({
   line,
   onChange,
+  onDelete,
 }: {
   line: LineDto;
   onChange: (line: LineDto) => void;
+  onDelete: (lines: LineDto[]) => void;
 }) {
   const { selectedId, hoveredId, select, hover } = useSelection();
   const ref = useRef<HTMLDivElement>(null);
@@ -18,6 +20,8 @@ export function LineRow({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const isSelected = line.id === selectedId;
 
   async function copyText() {
@@ -43,6 +47,19 @@ export function LineRow({
     } finally {
       setSaving(false);
     }
+  }
+
+  async function remove() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      onDelete(await deleteLine(line.id));
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+    // No `finally` reset of `deleting` on success: the row unmounts as soon
+    // as `onDelete` swaps `image.lines`, so there is nothing left to update.
   }
 
   useEffect(() => setDraft(line.final_text), [line.id, line.final_text]);
@@ -107,6 +124,9 @@ export function LineRow({
         </button>
         <button onClick={revert} disabled={line.corrected_text === null} title="Restore OCR text">
           ⟲
+        </button>
+        <button onClick={remove} disabled={deleting} title={deleteError ?? "Delete this line"}>
+          {deleteError ? "⚠" : "🗑"}
         </button>
       </div>
     </div>

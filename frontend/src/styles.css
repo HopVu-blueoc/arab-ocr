@@ -72,6 +72,7 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 .line-status-approved { border-inline-start: 3px solid #4caf50; }
 .line-save-failed { outline: 1px solid #ff6b6b; }
 .line-save-failed .line-score { color: #ff6b6b; font-size: 11px; }
+.line-actions button:disabled { opacity: 0.5; cursor: default; }
 
 .review-shell { display: grid; grid-template-rows: auto 1fr; min-height: 0; height: 100%; }
 .review-shell { grid-template-rows: auto auto 1fr; }
