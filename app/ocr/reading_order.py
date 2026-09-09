@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 
+from app.models import Line
 from app.ocr.engine import OcrLine, bbox
 
 
@@ -34,3 +35,18 @@ def sort_reading_order(
         band["lines"].sort(key=lambda line: bbox(line.polygon)[0], reverse=rtl)
         ordered.extend(band["lines"])
     return ordered
+
+
+def reorder_lines(lines: list[Line]) -> list[Line]:
+    """Adapt DB `Line` rows to `sort_reading_order`'s `OcrLine` view and back.
+
+    Only `polygon` matters for ordering, so `text`/`score` are filled with
+    placeholders. Order is recovered by object identity of the wrapper
+    objects this function creates itself: `sort_reading_order` reorders its
+    input list without ever cloning an element, so each wrapper's identity
+    survives the call and maps unambiguously back to the `Line` it came from
+    - even if two lines share an identical polygon.
+    """
+    wrapped = [OcrLine(text="", score=0.0, polygon=[tuple(p) for p in ln.polygon]) for ln in lines]
+    by_identity = {id(w): ln for w, ln in zip(wrapped, lines, strict=True)}
+    return [by_identity[id(w)] for w in sort_reading_order(wrapped)]
