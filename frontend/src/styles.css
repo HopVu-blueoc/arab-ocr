@@ -99,6 +99,7 @@ body { margin: 0; background: var(--bg); color: var(--fg);
    seen in the strip or the review pane it's currently open in. */
 .toolbar-error { color: #ff6b6b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toolbar-retry { border-color: #ff6b6b; color: #ff6b6b; }
+.toolbar-drawing { border-color: #ffc107; color: #ffc107; }
 
 .batch-list-toolbar { display: flex; gap: 6px; margin-bottom: 4px; }
 .batch-list-toolbar button { padding: 4px 8px; font-size: 11px; border-radius: 6px;

@@ -7,11 +7,15 @@ export function Toolbar({
   onApprove,
   onNext,
   onRetry,
+  drawMode,
+  onToggleDrawMode,
 }: {
   image: ImageDetailDto;
   onApprove: () => void;
   onNext: () => void;
   onRetry: () => void;
+  drawMode: boolean;
+  onToggleDrawMode: () => void;
 }) {
   const reviewed = image.lines.filter((l) => l.status !== "unreviewed").length;
   const failed = image.status === "failed";
@@ -47,6 +51,13 @@ export function Toolbar({
             Retry OCR
           </button>
         )}
+        <button
+          onClick={onToggleDrawMode}
+          className={drawMode ? "toolbar-drawing" : undefined}
+          title="Draw a box around text the pipeline missed"
+        >
+          {drawMode ? "Drawing… (click to stop)" : "Draw box"}
+        </button>
         <button
           onClick={copyAll}
           disabled={image.lines.length === 0}
