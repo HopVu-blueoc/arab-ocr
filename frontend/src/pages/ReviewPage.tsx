@@ -18,6 +18,7 @@ export function ReviewPage({
 }) {
   const [image, setImage] = useState<ImageDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drawMode, setDrawMode] = useState(false);
   const { selectedId, select } = useSelection();
 
   useEffect(() => {
@@ -56,12 +57,20 @@ export function ReviewPage({
     };
   }, [imageId, image?.status]);
 
+  // Reset draw mode on every image switch - a leftover "drawing" state from
+  // the previous image would otherwise silently disable panning on the next
+  // one until the reviewer notices and toggles it off by hand.
+  useEffect(() => setDrawMode(false), [imageId]);
+
   const replaceLine = (updated: LineDto) =>
     setImage((prev) =>
       prev === null
         ? prev
         : { ...prev, lines: prev.lines.map((l) => (l.id === updated.id ? updated : l)) },
     );
+
+  const replaceLines = (lines: LineDto[]) =>
+    setImage((prev) => (prev === null ? prev : { ...prev, lines }));
 
   async function approveImage() {
     if (image === null) return;
@@ -102,14 +111,21 @@ export function ReviewPage({
       <p className="processing-note" hidden={!isProcessing(image.status)}>
         OCR running — this view updates itself.
       </p>
-      <Toolbar image={image} onApprove={approveImage} onNext={onNextImage} onRetry={retryOcr} />
+      <Toolbar
+        image={image}
+        onApprove={approveImage}
+        onNext={onNextImage}
+        onRetry={retryOcr}
+        drawMode={drawMode}
+        onToggleDrawMode={() => setDrawMode((d) => !d)}
+      />
       <div className="review-split">
         <section className="pane pane-image">
-          <ImageCanvas image={image} />
+          <ImageCanvas image={image} drawMode={drawMode} onLinesChanged={replaceLines} />
         </section>
         <section className="pane pane-text">
           <LineCrop image={image} line={image.lines.find((l) => l.id === selectedId) ?? null} />
-          <LineList lines={image.lines} onChange={replaceLine} />
+          <LineList lines={image.lines} onChange={replaceLine} onDelete={replaceLines} />
         </section>
       </div>
     </div>
