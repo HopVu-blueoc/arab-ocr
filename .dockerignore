@@ -12,6 +12,8 @@ __pycache__/
 
 # frontend
 node_modules/
+**/node_modules/
+frontend/node_modules/
 frontend/dist/
 
 # docs/dev-only
