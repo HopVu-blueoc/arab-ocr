@@ -1,4 +1,4 @@
-# GPU overlay - UNVERIFIED, see docker/api.gpu.Dockerfile's header comment.
+# GPU overlay - verified on an RTX 5070 (Blackwell), see docker/api.gpu.Dockerfile's header comment.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
 #
 # Needs the NVIDIA Container Toolkit installed on the host so the Docker

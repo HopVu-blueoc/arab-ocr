@@ -1,18 +1,16 @@
-# Backend image, GPU (CUDA). UNVERIFIED - built for the target Ubuntu+CUDA
-# box this project has always deferred to (see README's "Later: Ubuntu +
-# CUDA" section); there is no GPU available to test this Dockerfile against
-# where it was written. Sanity-check it on the real box before relying on it:
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml build api
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm api \
-#     python -c "import paddle; paddle.utils.run_check()"
+# Backend image, GPU (CUDA). Verified working end-to-end on an RTX 5070
+# (Blackwell, sm_120) - detection + recognition both ran on GPU and matched
+# the CPU image's output on the same input.
 #
-# CUDA 12.6 chosen because it's the version paddlepaddle-gpu==3.3.1 publishes
-# a wheel for (paddlepaddle.org.cn/packages/stable/cu126/) - confirmed against
-# PaddlePaddle's own install docs, not guessed. Uses the official NVIDIA CUDA
-# base image rather than PaddlePaddle's own prebuilt image (hosted on a Baidu
-# registry) so this doesn't depend on reaching a registry an on-prem
-# deployment may not have network access to.
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+# CUDA 12.9 required for Blackwell (RTX 50-series / sm_120) GPUs - the cu126
+# wheel has no sm_120 kernels and silently computes zeros on those GPUs
+# instead of erroring (confirmed: even `x + x` returns 0 on an RTX 5070 with
+# the cu126 build). See PaddleOCR's own Blackwell guide, which pins cu129:
+# https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/PaddleOCR-VL-NVIDIA-Blackwell.en.md
+# Uses the official NVIDIA CUDA base image rather than PaddlePaddle's own
+# prebuilt image (hosted on a Baidu registry) so this doesn't depend on
+# reaching a registry an on-prem deployment may not have network access to.
+FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04
 
 # libgomp1 confirmed required by running the CPU image (docker/api.Dockerfile)
 # for real - paddle's compiled core needs it or the worker crashes on startup.
@@ -44,7 +42,7 @@ RUN uv sync --frozen --no-dev --no-cache
 # wheel to match the lockfile) - this is the one dependency this image
 # deliberately diverges from uv.lock for.
 RUN uv pip install "paddlepaddle-gpu==3.3.1" \
-    -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+    -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
