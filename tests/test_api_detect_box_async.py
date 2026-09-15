@@ -102,7 +102,8 @@ def test_job_endpoint_returns_lines_on_success(client, monkeypatch):
         def failed(self):
             return False
 
-        result = {"ok": True, "status_code": 200, "lines": [{"id": 1, "rec_text": "x"}]}
+        def __init__(self):
+            self.result = {"ok": True, "status_code": 200, "lines": [{"id": 1, "rec_text": "x"}]}
 
     monkeypatch.setattr(jobs, "AsyncResult", lambda *a, **k: _Done())
 
@@ -121,7 +122,12 @@ def test_job_endpoint_maps_an_expected_no_match_to_422(client, monkeypatch):
         def failed(self):
             return False
 
-        result = {"ok": False, "status_code": 422, "reason": "no text found in that region"}
+        def __init__(self):
+            self.result = {
+                "ok": False,
+                "status_code": 422,
+                "reason": "no text found in that region",
+            }
 
     monkeypatch.setattr(jobs, "AsyncResult", lambda *a, **k: _NoMatch())
 

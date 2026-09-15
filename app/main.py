@@ -1,8 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlmodel import Session
 
 from app.config import get_settings
+from app.db import get_engine
+from app.health import build_health_report
 from app.routers import batches, images, jobs, lines
+from app.storage import get_storage
 
 
 def create_app() -> FastAPI:
@@ -22,8 +27,15 @@ def create_app() -> FastAPI:
     app.include_router(lines.router)
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> JSONResponse:
+        """Database and storage reachability, gating Docker's own healthcheck
+        (`depends_on: condition: service_healthy`); broker reachability and
+        the current OCR backlog are reported alongside for an operator to see,
+        not treated as failing conditions - see app/health.py.
+        """
+        with Session(get_engine()) as session:
+            status_code, body = build_health_report(session, get_storage(), get_settings())
+        return JSONResponse(status_code=status_code, content=body)
 
     @app.get("/api/limits")
     def limits() -> dict[str, int]:

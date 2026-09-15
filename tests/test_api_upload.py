@@ -13,7 +13,10 @@ def distinct_png(index: int) -> bytes:
 
 
 def test_health(client):
-    assert client.get("/api/health").json() == {"status": "ok"}
+    # Full behaviour covered in tests/test_health.py; this just confirms the
+    # route is wired up and reports healthy against the test fixtures.
+    body = client.get("/api/health").json()
+    assert body["status"] == "ok"
 
 
 def test_batch_is_created_empty_and_names_its_storage_prefix(client):

@@ -216,6 +216,63 @@ models on every restart.
 `docker compose down -v` drops all of it, including RustFS's stored images —
 same irreversible tradeoff as deleting `data/` in the non-Docker setup.
 
+### Backup and restore
+
+Two volumes hold everything that cannot be regenerated: `app-data` (the
+SQLite database and exports) and `rustfs-data` (the uploaded images
+themselves). `paddle-models`/`paddle-models-ocr` are only a download cache —
+skip them; losing them just means the next `worker` start re-downloads the
+models. Compose prefixes volume names with the project (directory) name —
+run `docker volume ls` to see the exact `<project>_app-data` /
+`<project>_rustfs-data` for your checkout; the commands below assume the
+default `arab-ocr_` prefix.
+
+Back up (stop `api`/`worker` briefly for a guaranteed-consistent SQLite
+snapshot — reads through `frontend` still work, uploads and OCR just pause;
+`redis`/`rustfs` keep running):
+
+```bash
+docker compose stop api worker
+
+docker run --rm -v arab-ocr_app-data:/from -v "$(pwd)":/to alpine \
+  tar czf "/to/backup-app-data-$(date +%Y%m%d).tgz" -C /from .
+docker run --rm -v arab-ocr_rustfs-data:/from -v "$(pwd)":/to alpine \
+  tar czf "/to/backup-rustfs-data-$(date +%Y%m%d).tgz" -C /from .
+
+docker compose start api worker
+```
+
+Restore onto a fresh set of volumes (this replaces whatever is there —
+confirm you actually want to discard the current data first):
+
+```bash
+docker compose down
+
+docker volume rm arab-ocr_app-data arab-ocr_rustfs-data
+docker volume create arab-ocr_app-data
+docker volume create arab-ocr_rustfs-data
+
+docker run --rm -v arab-ocr_app-data:/to -v "$(pwd)":/from alpine \
+  tar xzf /from/backup-app-data-YYYYMMDD.tgz -C /to
+docker run --rm -v arab-ocr_rustfs-data:/to -v "$(pwd)":/from alpine \
+  tar xzf /from/backup-rustfs-data-YYYYMMDD.tgz -C /to
+
+docker compose up -d   # the migrate service applies to whatever schema
+                        # version the restored database was at
+```
+
+`GET /api/health` reports database and object-storage reachability plus the
+current OCR backlog size — worth checking after a restore, and worth
+pointing an uptime monitor at generally; every long-running service also now
+has `restart: unless-stopped`, so a crashed container comes back on its own
+(the one-shot `migrate` service deliberately does not — a failed migration
+should stop the stack, not retry silently against a half-migrated database).
+
+None of this is automated. There is no scheduled backup job, no offsite
+copy, and no tested disaster-recovery runbook beyond the commands above —
+put this behind whatever backup infrastructure the deployment host already
+has if the corpus matters.
+
 ### GPU (CUDA)
 
 ```bash

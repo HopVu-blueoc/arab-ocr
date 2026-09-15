@@ -2,6 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: arabic-ocr-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -16,6 +17,7 @@ services:
   rustfs:
     image: rustfs/rustfs:latest
     container_name: arabic-ocr-rustfs
+    restart: unless-stopped
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # web console
@@ -41,6 +43,7 @@ services:
     platform: linux/amd64
     image: arabic-ocr-api
     container_name: arabic-ocr-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment: &backend-env
@@ -119,6 +122,10 @@ services:
     environment: *backend-env
     volumes:
       - app-data:/app/data
+    # Deliberately not unless-stopped like every other service: a migration
+    # that fails should surface immediately (docker compose up exits
+    # non-zero, api/worker never start per depends_on), not restart-loop
+    # silently against a database it may have left half-migrated.
     restart: "no"
 
   worker:
@@ -129,6 +136,7 @@ services:
                              # compose since context+dockerfile are identical
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-worker
+    restart: unless-stopped
     # -B embeds Celery beat in this same process, driving the reconcile
     # sweep (app/reconcile.py). Only correct with exactly one worker
     # container, which is this compose file's current shape - splitting
@@ -159,6 +167,7 @@ services:
                              # it for just this one invocation
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-flower
+    restart: unless-stopped
     command: ["uv", "run", "--with", "flower",
       "celery", "-A", "app.worker.celery_app.celery", "flower", "--port=5555"]
     environment:
@@ -174,6 +183,7 @@ services:
       context: .
       dockerfile: docker/frontend.Dockerfile
     container_name: arabic-ocr-frontend
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
