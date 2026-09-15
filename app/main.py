@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import get_settings
 from app.routers import batches, images, lines
 
 
@@ -22,6 +23,20 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/limits")
+    def limits() -> dict[str, int]:
+        """Upload caps, so the client packs requests the proxy will accept.
+
+        Served rather than duplicated in the frontend: a hardcoded copy drifts
+        the moment either limit is tuned, and the symptom is a 413 the user
+        cannot do anything about.
+        """
+        settings = get_settings()
+        return {
+            "max_file_bytes": settings.max_upload_bytes,
+            "max_request_bytes": settings.max_request_bytes,
+        }
 
     return app
 

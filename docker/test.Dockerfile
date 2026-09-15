@@ -24,6 +24,9 @@ RUN uv export --frozen --only-group dev --no-hashes -o /tmp/dev-requirements.txt
 COPY pyproject.toml alembic.ini ./
 COPY migrations ./migrations
 COPY tests ./tests
+# tests/test_limits.py reads this directly to check it agrees with the
+# backend's own MAX_REQUEST_MB - it is not otherwise needed at runtime.
+COPY docker/nginx.conf ./docker/nginx.conf
 # Re-copied rather than inherited: the base image only supplies the installed
 # dependency layer, and if it were built from older source the migration drift
 # test would compare fresh migrations against stale models and fail for a

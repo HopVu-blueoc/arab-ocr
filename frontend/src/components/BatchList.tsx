@@ -1,12 +1,23 @@
-import { useCallback, useRef, useState } from "react";
-import { createBatch, deleteBatch, exportBatch, getBatches, uploadImages } from "../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createBatch,
+  deleteBatch,
+  exportBatch,
+  getBatches,
+  getLimits,
+  uploadImages,
+} from "../api/client";
 import { anyBatchInFlight } from "../api/activity";
 import { pollErrorMessage } from "../api/poll";
-import { UPLOAD_CHUNK_SIZE, chunk, imageFilesFrom, summarizeUpload } from "../api/uploads";
+import { chunkByBytes, imageFilesFrom, summarizeUpload } from "../api/uploads";
 import type { BatchDto, UploadFailureDto } from "../api/types";
 import { usePagedPoll } from "../hooks/usePagedPoll";
 
 const BATCH_PAGE_SIZE = 50;
+
+// Used only until /api/limits answers. Conservative on purpose: guessing high
+// would produce the 413 this exists to prevent.
+const FALLBACK_REQUEST_BYTES = 16 * 1024 * 1024;
 
 const batchKey = (b: BatchDto) => b.id;
 
@@ -18,7 +29,9 @@ const DIRECTORY_ATTRS = {
   directory: "",
 } as unknown as React.InputHTMLAttributes<HTMLInputElement>;
 
-type Progress = { sent: number; total: number; fraction: number };
+// inFlight is the size of the group currently uploading. Chunks are packed by
+// bytes now, so it varies per request and cannot be assumed.
+type Progress = { sent: number; total: number; fraction: number; inFlight: number };
 
 export function BatchList({
   activeId,
@@ -61,6 +74,13 @@ export function BatchList({
   const refresh = reload;
   const pollError = pollErrorMessage(failures);
 
+  const [maxRequestBytes, setMaxRequestBytes] = useState(FALLBACK_REQUEST_BYTES);
+  useEffect(() => {
+    getLimits()
+      .then((l) => setMaxRequestBytes(l.max_request_bytes))
+      .catch(() => {}); // keep the conservative fallback
+  }, []);
+
   function choose(list: FileList | null) {
     const picked = imageFilesFrom(list);
     setFiles(picked);
@@ -89,15 +109,15 @@ export function BatchList({
     try {
       const batch = await createBatch(name.trim());
       batchId = batch.id;
-      for (const group of chunk(files, UPLOAD_CHUNK_SIZE)) {
+      for (const group of chunkByBytes(files, maxRequestBytes)) {
         const result = await uploadImages(batch.id, group, (fraction) =>
-          setProgress({ sent, total, fraction }),
+          setProgress({ sent, total, fraction, inFlight: group.length }),
         );
         imported += result.imported;
         skipped += result.skipped;
         failed.push(...result.failed);
         sent += group.length;
-        setProgress({ sent, total, fraction: 0 });
+        setProgress({ sent, total, fraction: 0, inFlight: 0 });
       }
       setNotice(summarizeUpload({ imported, skipped, failed }));
       await refresh();
@@ -174,9 +194,7 @@ export function BatchList({
 
   const uploading = progress !== null;
   const barFraction = progress
-    ? (progress.sent +
-        progress.fraction * Math.min(UPLOAD_CHUNK_SIZE, progress.total - progress.sent)) /
-      Math.max(progress.total, 1)
+    ? (progress.sent + progress.fraction * progress.inFlight) / Math.max(progress.total, 1)
     : 0;
 
   return (

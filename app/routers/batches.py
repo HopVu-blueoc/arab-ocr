@@ -113,7 +113,7 @@ UploadFiles = Annotated[list[UploadFile], File()]
 
 
 def _max_upload_bytes() -> int:
-    return get_settings().max_upload_mb * (1 << 20)
+    return get_settings().max_upload_bytes
 
 
 @router.post("", response_model=BatchOut, status_code=status.HTTP_201_CREATED)

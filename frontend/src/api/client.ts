@@ -60,6 +60,13 @@ const pageQuery = (limit?: number, cursor?: string | null) => {
   return query ? `?${query}` : "";
 };
 
+export interface LimitsDto {
+  max_file_bytes: number;
+  max_request_bytes: number;
+}
+
+export const getLimits = () => json<LimitsDto>("/api/limits");
+
 export const getBatches = (opts: { limit?: number; cursor?: string | null } = {}) =>
   json<PageDto<BatchDto>>(`/api/batches${pageQuery(opts.limit, opts.cursor)}`);
 

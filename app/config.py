@@ -27,6 +27,21 @@ class Settings(BaseSettings):
     # gets fully written. Scene photos from a phone are 3-8MB.
     max_upload_mb: int = 25
 
+    # Cap on one multipart request's total size. Separate from the per-file cap
+    # because the proxy rejects on the whole body: 20 files of 3MB each are
+    # individually fine and together a 413. The frontend reads this from
+    # /api/limits and packs requests to fit, and docker/nginx.conf's
+    # client_max_body_size must stay at or above it (tests/test_limits.py).
+    max_request_mb: int = 100
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * (1 << 20)
+
+    @property
+    def max_request_bytes(self) -> int:
+        return self.max_request_mb * (1 << 20)
+
     # Which OcrEngine to build.
     #
     # "paddle" (default, the only supported value for production) = the
