@@ -217,7 +217,7 @@ def upload_images(batch_id: int, session: SessionDep, files: UploadFiles) -> Upl
     # of the batch instead would re-enqueue anything an earlier upload left
     # queued, which under the Celery backend means OCRing it twice.
     for image in stored_images:
-        enqueue_image(image.id)  # readable post-commit: the row refreshes on access
+        enqueue_image(image.id, image.ocr_generation)  # post-commit: refreshes on access
 
     return UploadResult(imported=len(stored_images), skipped=skipped, failed=failed)
 

@@ -60,6 +60,15 @@ class Image(SQLModel, table=True):
     # No index=True: nothing filters status on its own - the only reader is the
     # aggregate above, which is served by ix_images_batch_id_status.
     status: ImageStatus = Field(default=ImageStatus.pending)
+    # Bumped each time OCR is (re)dispatched for this image, and carried on the
+    # queued task's arguments. A worker claims the job with an atomic
+    # UPDATE ... WHERE status='queued' AND ocr_generation=:generation - a
+    # redelivered or duplicate message for a stale generation or a
+    # no-longer-queued image matches zero rows and is a no-op. This is what
+    # stops a task that got redelivered after already completing (acks_late +
+    # reject_on_worker_lost can do this on a killed worker) from re-running
+    # OCR and deleting reviewer corrections. See app/service.py:claim_for_ocr.
+    ocr_generation: int = Field(default=1)
     error: str | None = None
     ocr_ms: int | None = None
     created_at: datetime = Field(default_factory=utcnow)

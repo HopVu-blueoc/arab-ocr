@@ -71,10 +71,23 @@ APPROVABLE = {ImageStatus.done, ImageStatus.approved}
 
 @router.patch("/{image_id}", response_model=ImageOut)
 def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Image:
+    """The only reviewer-meaningful transition here is approving.
+
+    Every other status is either a job-lifecycle state `claim_for_ocr` owns
+    exclusively, or a place a client could otherwise use this endpoint to walk
+    a `done` image back to `failed` and then hit `/retry` - which would bypass
+    the generation guard that protects reviewer corrections entirely, since
+    `retry` trusts `status == failed` as its only precondition.
+    """
+    if payload.status is not ImageStatus.approved:
+        raise HTTPException(
+            status_code=422, detail="status can only be set to 'approved' here"
+        )
+
     image = session.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="image not found")
-    if payload.status is ImageStatus.approved and image.status not in APPROVABLE:
+    if image.status not in APPROVABLE:
         raise HTTPException(
             status_code=409, detail=f"cannot approve an image in state {image.status}"
         )
@@ -91,9 +104,15 @@ def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Im
 def retry_image(image_id: int, session: SessionDep) -> Image:
     """Re-run OCR on a failed image.
 
-    Only from `failed`: `run_ocr_for_image` deletes and recreates every Line
-    row on each run, so retrying a `done`/`approved` image would destroy any
-    corrections the reviewer already made.
+    Only from `failed`: a `done`/`approved` image may carry reviewer
+    corrections, and `run_ocr_for_image` still deletes and recreates every
+    Line row on a run it actually claims.
+
+    Bumping ocr_generation is what makes this a deliberate new run rather than
+    a stale message reviving: the worker only claims a task whose generation
+    matches the row's current one (see app/service.py:claim_for_ocr), so any
+    task still in flight for the old generation - including one this same
+    request superseded - can never re-run against this row.
     """
     image = session.get(Image, image_id)
     if image is None:
@@ -105,12 +124,13 @@ def retry_image(image_id: int, session: SessionDep) -> Image:
 
     image.status = ImageStatus.queued
     image.error = None
+    image.ocr_generation += 1
     image.updated_at = utcnow()
     session.add(image)
     session.commit()
     session.refresh(image)
 
-    enqueue_image(image.id)
+    enqueue_image(image.id, image.ocr_generation)
     session.refresh(image)  # the inline job backend advances status synchronously
     return image
 

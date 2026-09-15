@@ -19,16 +19,22 @@ def get_engine() -> OcrEngine:
     return _engine
 
 
-def enqueue_image(image_id: int) -> None:
-    """Run OCR for one image. Inline today; Celery once JOB_BACKEND=celery."""
+def enqueue_image(image_id: int, generation: int) -> None:
+    """Run OCR for one image. Inline today; Celery once JOB_BACKEND=celery.
+
+    `generation` must match what the caller just wrote to Image.ocr_generation
+    (build_image sets 1 on upload; retry_image increments it) - it is how a
+    redelivered or duplicate task recognises it is stale. See
+    app/service.py:claim_for_ocr.
+    """
     if get_settings().job_backend == "celery":
         from app.worker.tasks import ocr_image
 
-        ocr_image.delay(image_id)
+        ocr_image.delay(image_id, generation)
         return
 
     from app.db import session_scope
     from app.service import run_ocr_for_image
 
     with session_scope() as session:
-        run_ocr_for_image(session, image_id, get_engine())
+        run_ocr_for_image(session, image_id, get_engine(), generation)
