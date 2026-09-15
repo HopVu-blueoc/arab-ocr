@@ -53,11 +53,43 @@ services:
       REDIS_URL: redis://redis:6379/0
       JOB_BACKEND: celery
       OCR_DEVICE: ${OCR_DEVICE:-cpu}
-      # .env is not copied into the image and compose has no env_file, so
-      # anything not listed here silently falls back to the Python default.
-      # MAX_REQUEST_MB must stay at or below nginx's client_max_body_size.
+      # .env is never copied into the image and compose has no env_file:, so
+      # any Settings field missing from this list silently falls back to its
+      # Python default no matter what .env says. Every field in app/config.py
+      # is listed here for exactly that reason - a tuning knob an operator
+      # sets in .env must actually reach the container or the docs are lying.
+      S3_REGION: ${S3_REGION:-us-east-1}
+      REVIEWER_NAME: ${REVIEWER_NAME:-reviewer}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      # MAX_REQUEST_MB must stay at or below nginx's client_max_body_size.
       MAX_REQUEST_MB: ${MAX_REQUEST_MB:-100}
+      OCR_ENGINE: ${OCR_ENGINE:-paddle}
+      OCR_VL_MODEL_NAME: ${OCR_VL_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
+      OCR_VL_BACKEND: ${OCR_VL_BACKEND:-native}
+      OCR_REC_MODEL: ${OCR_REC_MODEL:-arabic_PP-OCRv5_mobile_rec}
+      OCR_DET_MODEL: ${OCR_DET_MODEL:-PP-OCRv5_server_det}
+      OCR_LATIN_REC_MODEL: ${OCR_LATIN_REC_MODEL:-latin_PP-OCRv5_mobile_rec}
+      # Empty means "unset" (PaddleOCR's own default) - Settings treats an
+      # empty string the same as never having set the variable at all.
+      OCR_DET_LIMIT_SIDE_LEN: ${OCR_DET_LIMIT_SIDE_LEN:-}
+      OCR_DET_THRESH: ${OCR_DET_THRESH:-}
+      OCR_DET_BOX_THRESH: ${OCR_DET_BOX_THRESH:-}
+      OCR_DET_UNCLIP_RATIO: ${OCR_DET_UNCLIP_RATIO:-}
+      OCR_PIPELINE_REC_SCORE_THRESH: ${OCR_PIPELINE_REC_SCORE_THRESH:-0.0}
+      OCR_REC_SCORE_THRESH: ${OCR_REC_SCORE_THRESH:-0.3}
+      OCR_MIN_BOX_SIDE: ${OCR_MIN_BOX_SIDE:-0}
+      OCR_USE_TEXTLINE_ORIENTATION: ${OCR_USE_TEXTLINE_ORIENTATION:-false}
+      OCR_USE_DOC_ORIENTATION_CLASSIFY: ${OCR_USE_DOC_ORIENTATION_CLASSIFY:-false}
+      OCR_USE_DOC_UNWARPING: ${OCR_USE_DOC_UNWARPING:-false}
+      OCR_SECOND_PASS: ${OCR_SECOND_PASS:-true}
+      OCR_SECOND_PASS_MAX_SCORE: ${OCR_SECOND_PASS_MAX_SCORE:-0.85}
+      OCR_RESCUE_MIN_GAIN: ${OCR_RESCUE_MIN_GAIN:-0.15}
+      OCR_CROP_TARGET_HEIGHT: ${OCR_CROP_TARGET_HEIGHT:-64}
+      OCR_CROP_MAX_UPSCALE: ${OCR_CROP_MAX_UPSCALE:-4.0}
+      OCR_CROP_CLAHE: ${OCR_CROP_CLAHE:-true}
+      RECONCILE_ENQUEUE_GRACE_SECONDS: ${RECONCILE_ENQUEUE_GRACE_SECONDS:-30}
+      RECONCILE_RUNNING_TIMEOUT_SECONDS: ${RECONCILE_RUNNING_TIMEOUT_SECONDS:-1800}
+      RECONCILE_INTERVAL_SECONDS: ${RECONCILE_INTERVAL_SECONDS:-60}
     volumes:
       - app-data:/app/data
     depends_on:

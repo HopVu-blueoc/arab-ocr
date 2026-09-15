@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -81,6 +82,22 @@ class Settings(BaseSettings):
     ocr_det_thresh: float | None = None
     ocr_det_box_thresh: float | None = None
     ocr_det_unclip_ratio: float | None = None
+
+    @field_validator(
+        "ocr_det_limit_side_len",
+        "ocr_det_thresh",
+        "ocr_det_box_thresh",
+        "ocr_det_unclip_ratio",
+        mode="before",
+    )
+    @classmethod
+    def _blank_env_var_means_unset(cls, value: object) -> object:
+        """docker-compose.yml passes these as `${VAR:-}` - unset on the host
+        becomes an empty string in the container, not a missing key, and
+        pydantic would otherwise reject "" as an int/float."""
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
     # Keep the pipeline's own filter open so weak lines survive long enough to
     # be re-read by the second pass; the real filter is applied afterwards.
     ocr_pipeline_rec_score_thresh: float = 0.0
