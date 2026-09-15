@@ -1,19 +1,14 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.db import init_db
 from app.routers import batches, images, lines
 
 
 def create_app() -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(_: FastAPI):
-        init_db()
-        yield
-
-    app = FastAPI(title="Arabic OCR Review", lifespan=lifespan)
+    # No schema creation on startup. Migrations own the schema and run once,
+    # from the `migrate` compose service, before api and worker start - they
+    # share one SQLite file and would otherwise race to build it.
+    app = FastAPI(title="Arabic OCR Review")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173"],

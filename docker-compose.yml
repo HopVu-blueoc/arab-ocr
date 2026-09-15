@@ -60,11 +60,29 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Runs to completion before api and worker start. The schema is applied from
+  # exactly one process: api and worker share one SQLite file and would race to
+  # build it if each migrated on startup.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: arabic-ocr-api
+    platform: linux/amd64
+    container_name: arabic-ocr-migrate
+    command: ["python", "-m", "app.migrate"]
+    environment: *backend-env
+    volumes:
+      - app-data:/app/data
+    restart: "no"
 
   worker:
     build:
@@ -90,6 +108,8 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   flower:
     image: arabic-ocr-api   # same image as api/worker; flower isn't a

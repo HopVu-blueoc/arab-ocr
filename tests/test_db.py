@@ -24,14 +24,14 @@ def test_pragma_hook_is_not_registered_on_the_engine_class(client):
 
 
 def test_foreign_keys_enforced_in_engine_fixture(engine):
+    """The fixture builds its own engine, so it has to opt into the PRAGMAs."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
     from sqlmodel import Session
 
     from app.models import Line
 
     with Session(engine) as session:
         session.add(Line(image_id=999, reading_order=0, rec_text="x", score=1.0, polygon=[]))
-        try:
+        with pytest.raises(IntegrityError):
             session.commit()
-        except Exception:
-            return
-    raise AssertionError("expected a foreign key violation for a dangling image_id")
