@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
@@ -15,7 +16,27 @@ from app.models import Batch, Image, ImageStatus, Line
 from app.pagination import decode_cursor, encode_cursor
 from app.schemas import BatchCreate, BatchOut, ImageOut, Page, UploadFailure, UploadResult
 from app.storage import get_storage
-from app.uploads import UploadRejected, display_name_for, register_image, store_upload
+from app.storage.base import Storage
+from app.uploads import (
+    StoredUpload,
+    UploadRejected,
+    build_image,
+    display_name_for,
+    insert_or_existing,
+    store_upload,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _delete_quietly(storage: Storage, keys: list[str]) -> None:
+    """Best-effort object cleanup. An orphaned object wastes space; a failure
+    here must not fail a request whose rows are already committed."""
+    for key in keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            logger.warning("could not delete orphaned object %s", key, exc_info=True)
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
@@ -111,13 +132,20 @@ def upload_images(batch_id: int, session: SessionDep, files: UploadFiles) -> Upl
     """
     if session.get(Batch, batch_id) is None:
         raise HTTPException(status_code=404, detail="batch not found")
+    # That SELECT opened a transaction. Close it before the storage writes
+    # below, or SQLite holds it open across every network round trip and no
+    # other writer - including the OCR worker - can commit meanwhile.
+    session.rollback()
 
     storage = get_storage()
     max_bytes = _max_upload_bytes()
 
-    stored_images: list[Image] = []
-    skipped = 0
+    # Phase A: all the slow work - decode, hash, upload - with no DB session
+    # in play at all.
+    stored_uploads: list[StoredUpload] = []
     failed: list[UploadFailure] = []
+    seen_digests: set[str] = set()
+    skipped = 0
 
     for upload in files:
         display_name = display_name_for(upload.filename)
@@ -133,14 +161,41 @@ def upload_images(batch_id: int, session: SessionDep, files: UploadFiles) -> Upl
             failed.append(UploadFailure(filename=display_name, reason=str(exc)))
             continue
 
-        image = register_image(session, batch_id=batch_id, stored=stored, storage=storage)
-        if image is None:
+        if stored.sha256 in seen_digests:
+            # The same bytes twice in one request: identical content means an
+            # identical key, so the second put() just overwrote the first.
             skipped += 1
             continue
-        image.status = ImageStatus.queued
-        stored_images.append(image)
+        seen_digests.add(stored.sha256)
+        stored_uploads.append(stored)
 
-    session.commit()
+    # Phase B: one short write transaction, no I/O inside it.
+    stored_images: list[Image] = []
+    orphaned_keys: list[str] = []
+    try:
+        for stored in stored_uploads:
+            image, inserted = insert_or_existing(session, build_image(batch_id, stored))
+            if not inserted:
+                skipped += 1
+                # Identical bytes produce an identical key, so when the winner
+                # already points at this key the put() was an idempotent
+                # overwrite - deleting it would strand a live row.
+                if image.path != stored.key:
+                    orphaned_keys.append(stored.key)
+                continue
+            image.status = ImageStatus.queued
+            stored_images.append(image)
+        session.commit()
+    except Exception:
+        session.rollback()
+        # Nothing was recorded, so every object this request wrote is garbage.
+        _delete_quietly(storage, [s.key for s in stored_uploads])
+        raise
+
+    # Phase C: storage cleanup only after the rows are durable. Deleting while
+    # the transaction could still roll back would remove bytes a live row
+    # points at.
+    _delete_quietly(storage, orphaned_keys)
 
     # Enqueue exactly the rows this request created. Selecting every queued row
     # of the batch instead would re-enqueue anything an earlier upload left

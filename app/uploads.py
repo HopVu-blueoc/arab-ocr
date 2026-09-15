@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from PIL import Image as PILImage
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.models import Image, ImageStatus
@@ -126,28 +127,9 @@ def store_upload(
     )
 
 
-def register_image(
-    session: Session,
-    *,
-    batch_id: int,
-    stored: StoredUpload,
-    storage: Storage,
-) -> Image | None:
-    """Create the Image row, or return None if these bytes were already imported.
-
-    Image.sha256 is globally unique, so a duplicate may belong to a different
-    batch. Callers surface that to the reviewer rather than dropping it silently.
-    """
-    existing = session.exec(select(Image).where(Image.sha256 == stored.sha256)).first()
-    if existing is not None:
-        # Identical bytes in the same batch produce an identical key, so the
-        # put() above was an idempotent overwrite of the object `existing`
-        # points at - deleting it then would orphan a live row.
-        if existing.path != stored.key:
-            storage.delete(stored.key)
-        return None
-
-    image = Image(
+def build_image(batch_id: int, stored: StoredUpload) -> Image:
+    """The row these bytes would become. Pure - touches no session."""
+    return Image(
         batch_id=batch_id,
         path=stored.key,  # a storage key, not a filesystem path
         filename=stored.display_name,
@@ -156,5 +138,37 @@ def register_image(
         height=stored.height,
         status=ImageStatus.pending,
     )
-    session.add(image)
-    return image
+
+
+def insert_or_existing(session: Session, image: Image) -> tuple[Image, bool]:
+    """Insert the row, or return the one already holding its sha256.
+
+    Returns (row, inserted). Image.sha256 is globally unique, so a duplicate
+    may belong to another batch entirely; callers surface that to the reviewer
+    rather than dropping it silently.
+
+    The pre-check is only a fast path. Two requests uploading identical bytes
+    can both pass it, so the insert runs inside a SAVEPOINT: the loser's
+    IntegrityError rolls back that one statement instead of poisoning the
+    transaction and failing every other file in the request.
+
+    SAVEPOINT rather than INSERT ... ON CONFLICT because the latter is
+    dialect-specific, bypasses the unit of work (so the caller never gets the
+    populated id it needs to enqueue), and still cannot tell inserted from
+    existed without another SELECT.
+    """
+    existing = session.exec(select(Image).where(Image.sha256 == image.sha256)).first()
+    if existing is not None:
+        return existing, False
+
+    try:
+        with session.begin_nested():
+            session.add(image)
+            session.flush()
+    except IntegrityError:
+        winner = session.exec(select(Image).where(Image.sha256 == image.sha256)).first()
+        if winner is None:
+            raise  # not the uniqueness collision we were expecting
+        return winner, False
+
+    return image, True
