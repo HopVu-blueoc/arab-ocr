@@ -35,4 +35,11 @@ class Storage(Protocol):
     def delete(self, key: str) -> None:
         """Remove the object. Missing keys are not an error."""
 
+    def delete_many(self, keys: list[str]) -> None:
+        """Remove many objects. Missing keys are not an error.
+
+        Separate from delete() because deleting a large batch one key at a
+        time is one network round trip per image; S3 takes 1000 per call.
+        """
+
     def exists(self, key: str) -> bool: ...

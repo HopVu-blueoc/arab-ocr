@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import case, tuple_
+from sqlalchemy import delete as sa_delete
 from sqlmodel import Session, func, select
 
 from app.config import get_settings
@@ -38,12 +39,27 @@ def _delete_quietly(storage: Storage, keys: list[str]) -> None:
         except Exception:
             logger.warning("could not delete orphaned object %s", key, exc_info=True)
 
+
+def _delete_quietly_many(storage: Storage, keys: list[str]) -> None:
+    """Same contract as _delete_quietly, but one call for the whole chunk."""
+    if not keys:
+        return
+    try:
+        storage.delete_many(keys)
+    except Exception:
+        logger.warning("could not delete %d objects, falling back", len(keys), exc_info=True)
+        _delete_quietly(storage, keys)
+
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
 BATCH_PAGE_DEFAULT = 50
 BATCH_PAGE_MAX = 200
 IMAGE_PAGE_DEFAULT = 100
 IMAGE_PAGE_MAX = 500
+
+# Rows deleted per transaction. Bounds both the open transaction and the
+# number of rows held in memory when deleting a large batch.
+_DELETE_CHUNK = 500
 
 _ZERO_COUNTS = {"image_count": 0, "done_count": 0, "approved_count": 0, "failed_count": 0}
 
@@ -292,25 +308,36 @@ def delete_batch(batch_id: int, session: SessionDep) -> None:
     batch = session.get(Batch, batch_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="batch not found")
+    session.rollback()  # see upload_images: don't hold a transaction over I/O
 
-    # These models have plain FK columns with no ORM relationship() declared,
-    # so the session doesn't know the dependency order and won't sequence
-    # deletes itself - each generation is deleted and flushed before the
-    # next, since SQLite enforces the constraint at flush time.
     storage = get_storage()
-    images = session.exec(select(Image).where(Image.batch_id == batch_id)).all()
-    image_ids = [image.id for image in images]
 
-    if image_ids:
-        for line in session.exec(select(Line).where(Line.image_id.in_(image_ids))).all():
-            session.delete(line)
-        session.flush()
+    # A chunk at a time so neither the transaction nor the row set grows with
+    # the batch: a 10k-image batch used to materialise every row and make one
+    # storage call per image, all inside a single open write transaction.
+    while True:
+        rows = session.exec(
+            select(Image.id, Image.path).where(Image.batch_id == batch_id).limit(_DELETE_CHUNK)
+        ).all()
+        if not rows:
+            break
 
-        for image in images:
-            storage.delete(image.path)
-            session.delete(image)
-        session.flush()
+        image_ids = [row[0] for row in rows]
+        keys = [row[1] for row in rows]
 
+        # Bulk DELETEs rather than per-row session.delete(): no ORM
+        # relationship() is declared, so the session would neither sequence
+        # the children first nor avoid loading every row it deletes.
+        session.exec(sa_delete(Line).where(Line.image_id.in_(image_ids)))
+        session.exec(sa_delete(Image).where(Image.id.in_(image_ids)))
+        session.commit()
+
+        # Only once the rows are durably gone. The reverse order would delete
+        # bytes that a rolled-back transaction still points a live row at.
+        _delete_quietly_many(storage, keys)
+
+    # The batch row goes last, so a crash part-way leaves the batch visible
+    # and a repeated DELETE resumes where this one stopped.
     session.delete(batch)
     session.commit()
 

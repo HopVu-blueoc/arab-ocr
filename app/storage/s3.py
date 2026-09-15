@@ -80,6 +80,17 @@ class S3Storage:
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=key)
 
+    def delete_many(self, keys: list[str]) -> None:
+        # delete_objects caps at 1000 keys per request.
+        for start in range(0, len(keys), 1000):
+            chunk = keys[start : start + 1000]
+            if not chunk:
+                continue
+            self._client.delete_objects(
+                Bucket=self._bucket,
+                Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True},
+            )
+
     def exists(self, key: str) -> bool:
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)
