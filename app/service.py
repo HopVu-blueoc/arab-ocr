@@ -1,11 +1,14 @@
 import logging
 import time
+from typing import Any
 
 from sqlalchemy import update as sa_update
 from sqlmodel import Session, select
 
 from app.models import Image, ImageStatus, Line, utcnow
+from app.ocr.crops import load_bgr
 from app.ocr.engine import OcrEngine
+from app.ocr.reading_order import reorder_lines
 from app.storage import get_storage
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -110,3 +113,75 @@ def run_ocr_for_image(
     image.ocr_ms = int((time.perf_counter() - started) * 1000)
     image.updated_at = utcnow()
     session.commit()  # one commit per image
+
+
+def _line_payload(line: Line) -> dict[str, Any]:
+    return {
+        "id": line.id,
+        "reading_order": line.reading_order,
+        "rec_text": line.rec_text,
+        "corrected_text": line.corrected_text,
+        "final_text": line.final_text,
+        "score": line.score,
+        "polygon": line.polygon,
+        "status": line.status.value,
+    }
+
+
+def detect_box_for_image(
+    session: Session, image_id: int, polygon: list[list[float]], engine: OcrEngine
+) -> dict[str, Any]:
+    """Recognise one manually-drawn box and add it as a new Line.
+
+    Shared by the synchronous (JOB_BACKEND=inline) request path and the
+    Celery task (app/worker/tasks.py:detect_box_task) - the review's finding
+    was that this used to run inference directly inside the API process
+    (which has no GPU access and no serialization across request threads);
+    moving it here, callable from a task, is what lets it run in the worker
+    instead.
+
+    Returns a plain, JSON-safe dict rather than raising HTTPException: a
+    Celery task has no HTTP response to raise into. `status_code` is a hint
+    the caller (the router, or the job-status endpoint) maps back onto a
+    real response - it carries no FastAPI dependency itself.
+    """
+    image = session.get(Image, image_id)
+    if image is None:
+        return {"ok": False, "status_code": 404, "reason": "image not found"}
+
+    if not hasattr(engine, "recognize_quad"):
+        return {
+            "ok": False,
+            "status_code": 501,
+            "reason": "manual box detection isn't supported with the paddle_vl engine",
+        }
+
+    with get_storage().as_local_path(image.path) as local_path:
+        array = load_bgr(local_path)
+
+    poly = [(float(x), float(y)) for x, y in polygon]
+    candidate = engine.recognize_quad(array, poly)
+    if candidate is None:
+        return {"ok": False, "status_code": 422, "reason": "no text found in that region"}
+
+    session.add(
+        Line(
+            image_id=image.id,
+            reading_order=0,  # placeholder; overwritten by the re-sort below
+            rec_text=candidate.text,
+            score=candidate.score,
+            polygon=[[x, y] for x, y in poly],
+        )
+    )
+    session.commit()
+
+    all_lines = session.exec(select(Line).where(Line.image_id == image.id)).all()
+    for index, line in enumerate(reorder_lines(all_lines)):
+        line.reading_order = index
+        session.add(line)
+    session.commit()
+
+    ordered = session.exec(
+        select(Line).where(Line.image_id == image.id).order_by(Line.reading_order)
+    ).all()
+    return {"ok": True, "status_code": 200, "lines": [_line_payload(ln) for ln in ordered]}

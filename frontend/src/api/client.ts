@@ -98,11 +98,54 @@ export const updateLine = (
   patch: { corrected_text?: string | null; status?: LineStatus },
 ) => json<LineDto>(`/api/lines/${lineId}`, { method: "PATCH", body: JSON.stringify(patch) });
 
-export const detectBox = (imageId: number, polygon: number[][]) =>
-  json<LineDto[]>(`/api/images/${imageId}/lines/detect-box`, {
+const JOB_POLL_MS = 500;
+const JOB_POLL_MAX_ATTEMPTS = 120; // 60s - well past any single region's OCR time
+
+/** Poll GET /api/jobs/{id} until it leaves the pending state.
+ *
+ * 202 with {"status": "pending"} means "still running"; anything else is the
+ * task's real outcome, success or the mapped failure, exactly as if the
+ * original POST had answered synchronously.
+ */
+async function pollJob<T>(jobId: string): Promise<T> {
+  for (let attempt = 0; attempt < JOB_POLL_MAX_ATTEMPTS; attempt++) {
+    const res = await fetch(`/api/jobs/${jobId}`);
+    if (res.status !== 202) {
+      if (!res.ok) {
+        throw new ApiError(res.status, `GET /api/jobs/${jobId}`, detailFromBody(await res.text()));
+      }
+      return (await res.json()) as T;
+    }
+    await new Promise((resolve) => setTimeout(resolve, JOB_POLL_MS));
+  }
+  throw new ApiError(504, `GET /api/jobs/${jobId}`, "timed out waiting for region detection");
+}
+
+/** Under JOB_BACKEND=inline the server still answers 200 directly (small
+ *  deployments, and every test in this repo); under celery it answers 202
+ *  with a job id to poll. Region OCR moved off the API process (see
+ *  app/routers/images.py:detect_box) - it has no GPU in the deployed
+ *  topology, so this may now take a real round trip instead of returning
+ *  inline. */
+export async function detectBox(imageId: number, polygon: number[][]): Promise<LineDto[]> {
+  const res = await fetch(`/api/images/${imageId}/lines/detect-box`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ polygon }),
   });
+  if (res.status === 202) {
+    const { job_id } = (await res.json()) as { job_id: string };
+    return pollJob<LineDto[]>(job_id);
+  }
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      `POST /api/images/${imageId}/lines/detect-box`,
+      detailFromBody(await res.text()),
+    );
+  }
+  return (await res.json()) as LineDto[];
+}
 
 export const deleteLine = (lineId: number) =>
   json<LineDto[]>(`/api/lines/${lineId}`, { method: "DELETE" });

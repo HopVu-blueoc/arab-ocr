@@ -7,7 +7,7 @@ from app.db import session_scope
 from app.dispatch import get_engine
 from app.ocr.engine import OcrEngine
 from app.reconcile import reconcile
-from app.service import run_ocr_for_image
+from app.service import detect_box_for_image, run_ocr_for_image
 from app.worker.celery_app import celery
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,16 @@ def ocr_image(self, image_id: int, generation: int = 0) -> None:
     # worker running before this argument existed. See claim_for_ocr.
     with session_scope() as session:
         run_ocr(session, image_id, get_engine(), generation)
+
+
+@celery.task(name="app.detect_box")
+def detect_box_task(image_id: int, polygon: list[list[float]]) -> dict:
+    """Recognise a reviewer-drawn box. Runs in the worker so region OCR shares
+    the GPU/model warmup that ocr_image already holds, instead of loading its
+    own recognizers into the API process - see app/service.py:detect_box_for_image.
+    """
+    with session_scope() as session:
+        return detect_box_for_image(session, image_id, polygon, get_engine())
 
 
 @celery.task(name="app.reconcile_stuck_jobs")
