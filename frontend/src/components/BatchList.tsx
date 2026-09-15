@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createBatch, deleteBatch, exportBatch, getBatches, uploadImages } from "../api/client";
+import { anyBatchInFlight } from "../api/activity";
+import { pollErrorMessage } from "../api/poll";
 import { UPLOAD_CHUNK_SIZE, chunk, imageFilesFrom, summarizeUpload } from "../api/uploads";
 import type { BatchDto, UploadFailureDto } from "../api/types";
+import { usePagedPoll } from "../hooks/usePagedPoll";
+
+const BATCH_PAGE_SIZE = 50;
+
+const batchKey = (b: BatchDto) => b.id;
 
 // React's InputHTMLAttributes has no webkitdirectory, but it is a real
 // attribute Chromium and WebKit honour, and the browser walks the tree so the
@@ -22,7 +29,6 @@ export function BatchList({
   onPick: (batchId: number) => void;
   onDeleted: (batchId: number) => void;
 }) {
-  const [batches, setBatches] = useState<BatchDto[]>([]);
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -33,13 +39,27 @@ export function BatchList({
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
-  const refresh = () => getBatches().then(setBatches).catch(() => {});
+  const fetchPage = useCallback(
+    (cursor: string | null) => getBatches({ limit: BATCH_PAGE_SIZE, cursor }),
+    [],
+  );
 
-  useEffect(() => {
-    refresh();
-    const timer = setInterval(refresh, 3000); // progress ticks while OCR runs
-    return () => clearInterval(timer);
-  }, []);
+  const {
+    items: batches,
+    hasMore,
+    loadingMore,
+    loadMore,
+    reload,
+    failures,
+  } = usePagedPoll<BatchDto>({
+    fetchPage,
+    itemKey: batchKey,
+    hasWork: anyBatchInFlight,
+  });
+
+  // A user action resets to one fresh page; only the poll merges.
+  const refresh = reload;
+  const pollError = pollErrorMessage(failures);
 
   function choose(list: FileList | null) {
     const picked = imageFilesFrom(list);
@@ -209,6 +229,8 @@ export function BatchList({
         )}
       </form>
       {notice && <p className="batch-notice">{notice}</p>}
+      {/* Kept apart from `notice`, which holds upload summaries the user needs. */}
+      {pollError && <p className="batch-notice batch-poll-error">{pollError}</p>}
       <div className="batch-list-toolbar">
         {selectMode ? (
           <>
@@ -282,6 +304,11 @@ export function BatchList({
           </div>
         </div>
       ))}
+      {hasMore && (
+        <button className="batch-load-more" onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? "Loading…" : "Load more"}
+        </button>
+      )}
     </aside>
   );
 }
