@@ -127,6 +127,28 @@ class Settings(BaseSettings):
     # same as spurious. Results with no letter or digit are still dropped.
     ocr_min_box_side: int = 0
 
+    # --- OCR job reconciliation ------------------------------------------
+    # Backstop for a request that stored and committed an image as `queued`
+    # but never successfully published its Celery message - Redis was down,
+    # or the API process died between the commit and the publish. Nothing
+    # else will ever redeliver a message that was never sent.
+    # enqueued_at is set only once a publish actually succeeds, so a row
+    # stuck at NULL past this grace period genuinely never got a message -
+    # unlike a normal deep backlog, where enqueued_at is set the moment the
+    # message went out, however long the job then waits its turn.
+    reconcile_enqueue_grace_seconds: int = 30
+    # Backstop for a job whose worker died in a way Celery's own
+    # task_reject_on_worker_lost redelivery didn't recover from (e.g. the
+    # broker itself lost the unacked message before the crash was detected).
+    # Long on purpose: OCR time varies with image size and second-pass
+    # rescues, and reassigning a job that is actually still running risks two
+    # commits racing for the same row. Tune to comfortably exceed your
+    # slowest real image.
+    reconcile_running_timeout_seconds: int = 1800
+    # How often the sweep runs - Celery beat, embedded in the worker process
+    # (see docker-compose.yml's worker command and celery_app.py).
+    reconcile_interval_seconds: int = 60
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "app.db"

@@ -69,6 +69,11 @@ class Image(SQLModel, table=True):
     # reject_on_worker_lost can do this on a killed worker) from re-running
     # OCR and deleting reviewer corrections. See app/service.py:claim_for_ocr.
     ocr_generation: int = Field(default=1)
+    # Set only once dispatch.enqueue_image's Celery publish actually succeeds.
+    # A row that is status='queued' with this still None past a short grace
+    # period never got a message at all - see app/reconcile.py - which a
+    # normal backlog (published, just waiting its turn) cannot produce.
+    enqueued_at: datetime | None = Field(default=None)
     error: str | None = None
     ocr_ms: int | None = None
     created_at: datetime = Field(default_factory=utcnow)

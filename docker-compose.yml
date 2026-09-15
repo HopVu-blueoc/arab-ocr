@@ -97,8 +97,13 @@ services:
                              # compose since context+dockerfile are identical
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-worker
+    # -B embeds Celery beat in this same process, driving the reconcile
+    # sweep (app/reconcile.py). Only correct with exactly one worker
+    # container, which is this compose file's current shape - splitting
+    # beat into its own service is required before scaling worker replicas,
+    # or each replica schedules the sweep redundantly.
     command: ["celery", "-A", "app.worker.celery_app.celery", "worker",
-      "--loglevel=info", "--pool=prefork", "--concurrency=2"]
+      "--loglevel=info", "--pool=prefork", "--concurrency=2", "-B"]
     environment: *backend-env
     volumes:
       - app-data:/app/data

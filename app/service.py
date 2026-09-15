@@ -24,15 +24,32 @@ def claim_for_ocr(session: Session, image_id: int, generation: int) -> Image | N
     attempt for that row matches zero rows and is a no-op, at the database
     level rather than by any check-then-act in Python.
 
+    A same-generation message may also reclaim a row stuck at 'running', not
+    only 'queued' - that is what lets Celery's own crash recovery work.
+    task_reject_on_worker_lost redelivers a message only when Celery has
+    detected the worker *process* actually died, so a same-generation
+    redelivery finding 'running' means the previous attempt is dead, not
+    merely slow; refusing to reclaim it here would leave the row stuck at
+    'running' forever regardless of what celery_app.py's redelivery does.
+    A message for a generation this row has already moved past (superseded
+    by a retry, or by app/reconcile.py deciding the job was stuck and
+    reassigning it) still cannot claim anything, queued or running.
+
     generation=0 is the legacy escape hatch for a task message that was
-    already on the broker before this generation column existed - it skips
-    the generation match (but still requires status='queued'), so an
-    in-flight upgrade doesn't strand old messages. Never emitted by current
-    code; only ever read.
+    already on the broker before this generation column existed - it only
+    matches 'queued', not 'running' (there is no generation to compare, so
+    there is no way to tell a genuine crash-redelivery from a live duplicate),
+    so an in-flight upgrade doesn't strand old messages without also risking
+    a double-claim. Never emitted by current code; only ever read.
     """
-    conditions = [Image.id == image_id, Image.status == ImageStatus.queued]
+    conditions = [Image.id == image_id]
     if generation:
-        conditions.append(Image.ocr_generation == generation)
+        conditions += [
+            Image.ocr_generation == generation,
+            Image.status.in_([ImageStatus.queued, ImageStatus.running]),
+        ]
+    else:
+        conditions.append(Image.status == ImageStatus.queued)
 
     result = session.exec(
         sa_update(Image)

@@ -136,3 +136,35 @@ def test_a_stale_generation_is_never_claimed_even_while_queued(session, image_ro
 
     assert len(engine.calls) == 0
     assert image_row.status is ImageStatus.queued  # untouched, not claimed
+
+
+def test_a_same_generation_redelivery_resumes_a_row_stuck_running(session, image_row):
+    """This is what celery_app.py's task_reject_on_worker_lost promises:
+    a worker that was SIGKILLed mid-task leaves the row at 'running' with no
+    one left to finish it, and Celery redelivers the same message so another
+    worker picks it back up. The claim has to accept that redelivery from
+    'running', or the promise is broken - the row would stay stuck forever."""
+    from app.service import claim_for_ocr
+
+    image_row.status = ImageStatus.running  # as if a worker claimed it and died
+    session.add(image_row)
+    session.commit()
+
+    claimed = claim_for_ocr(session, image_row.id, image_row.ocr_generation)
+
+    assert claimed is not None
+    assert claimed.status is ImageStatus.running  # re-claimed, not left alone
+
+
+def test_a_different_generation_still_cannot_claim_a_running_row(session, image_row):
+    """The running-reclaim path is scoped to the SAME generation only - a
+    stale or superseded generation must not be able to grab a row that is
+    legitimately running under a newer one."""
+    from app.service import claim_for_ocr
+
+    image_row.status = ImageStatus.running
+    image_row.ocr_generation = 5
+    session.add(image_row)
+    session.commit()
+
+    assert claim_for_ocr(session, image_row.id, 4) is None

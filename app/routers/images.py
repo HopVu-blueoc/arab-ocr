@@ -125,6 +125,7 @@ def retry_image(image_id: int, session: SessionDep) -> Image:
     image.status = ImageStatus.queued
     image.error = None
     image.ocr_generation += 1
+    image.enqueued_at = None  # this generation has no publish yet
     image.updated_at = utcnow()
     session.add(image)
     session.commit()
