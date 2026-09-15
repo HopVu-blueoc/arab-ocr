@@ -7,7 +7,7 @@ def image_id(client, upload, tmp_path) -> int:
     path = tmp_path / "a.png"
     PILImage.new("RGB", (1000, 400), "white").save(path)
     batch, _ = upload("b", [path])
-    return client.get(f"/api/batches/{batch['id']}/images").json()[0]["id"]
+    return client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]["id"]
 
 
 def test_approve_a_done_image(client, image_id):

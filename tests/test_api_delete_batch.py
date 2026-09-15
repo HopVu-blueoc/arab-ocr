@@ -22,7 +22,7 @@ def test_delete_removes_batch_images_lines_and_stored_objects(client, upload, tm
     path = tmp_path / "a.png"
     PILImage.new("RGB", (1000, 400), "white").save(path)
     batch, _ = upload("to-delete", [path])
-    image = client.get(f"/api/batches/{batch['id']}/images").json()[0]
+    image = client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]
     detail = client.get(f"/api/images/{image['id']}").json()
     assert len(detail["lines"]) > 0  # sanity: the fake engine produced lines
 
@@ -59,7 +59,7 @@ def test_deleting_one_batch_does_not_touch_another(client, upload, tmp_path):
     assert resp.status_code == 204
 
     assert client.get(f"/api/batches/{batch1['id']}").status_code == 200
-    assert len(client.get(f"/api/batches/{batch1['id']}/images").json()) == 1
+    assert len(client.get(f"/api/batches/{batch1['id']}/images").json()["items"]) == 1
 
 
 def test_delete_unknown_batch_is_404(client):
@@ -74,5 +74,5 @@ def test_deleted_batch_no_longer_lists(client, upload, tmp_path):
 
     client.delete(f"/api/batches/{batch['id']}")
 
-    ids = [b["id"] for b in client.get("/api/batches").json()]
+    ids = [b["id"] for b in client.get("/api/batches").json()["items"]]
     assert batch["id"] not in ids

@@ -8,7 +8,7 @@ def _seed(client, upload, tmp_path) -> int:
     path = tmp_path / "page-1.png"
     PILImage.new("RGB", (1000, 400), "white").save(path)
     batch, _ = upload("export-me", [path])
-    image = client.get(f"/api/batches/{batch['id']}/images").json()[0]
+    image = client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]
     detail = client.get(f"/api/images/{image['id']}").json()
     client.patch(f"/api/lines/{detail['lines'][0]['id']}", json={"corrected_text": "نص مصحح"})
     return batch["id"]

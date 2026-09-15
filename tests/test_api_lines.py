@@ -7,7 +7,7 @@ def client_with_lines(client, upload, tmp_path):
     path = tmp_path / "a.png"
     PILImage.new("RGB", (1000, 400), "white").save(path)
     batch, _ = upload("b", [path])
-    image_id = client.get(f"/api/batches/{batch['id']}/images").json()[0]["id"]
+    image_id = client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]["id"]
     return client, client.get(f"/api/images/{image_id}").json()
 
 

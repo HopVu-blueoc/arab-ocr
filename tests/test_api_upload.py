@@ -33,7 +33,7 @@ def test_uploaded_images_are_ocred_and_serve_their_lines(client, source_dir):
     assert resp.status_code == 201
     assert resp.json() == {"imported": 2, "skipped": 0, "failed": []}
 
-    images = client.get(f"/api/batches/{batch['id']}/images").json()
+    images = client.get(f"/api/batches/{batch['id']}/images").json()["items"]
     assert [i["status"] for i in images] == ["done", "done"]
     assert [i["filename"] for i in images] == ["one.png", "two.png"]
 
@@ -58,7 +58,7 @@ def test_a_missing_object_still_reports_410(client, session_factory):
         f"/api/batches/{batch['id']}/images",
         files=[("files", ("a.png", distinct_png(2), "image/png"))],
     )
-    image_id = client.get(f"/api/batches/{batch['id']}/images").json()[0]["id"]
+    image_id = client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]["id"]
 
     with session_factory() as session:
         key = session.get(Image, image_id).path
@@ -75,7 +75,7 @@ def test_reuploading_the_same_bytes_is_skipped_not_duplicated(client):
     assert client.post(f"/api/batches/{first['id']}/images", files=payload).json()["imported"] == 1
     again = client.post(f"/api/batches/{second['id']}/images", files=payload).json()
     assert again == {"imported": 0, "skipped": 1, "failed": []}
-    assert client.get(f"/api/batches/{second['id']}/images").json() == []
+    assert client.get(f"/api/batches/{second['id']}/images").json()["items"] == []
 
 
 def test_one_bad_file_does_not_fail_the_whole_upload(client):
@@ -93,7 +93,7 @@ def test_one_bad_file_does_not_fail_the_whole_upload(client):
     assert body["imported"] == 1
     assert [f["filename"] for f in body["failed"]] == ["invoice.png", "notes.pdf"]
     assert "not a readable image" in body["failed"][0]["reason"]
-    assert len(client.get(f"/api/batches/{batch['id']}/images").json()) == 1
+    assert len(client.get(f"/api/batches/{batch['id']}/images").json()["items"]) == 1
 
 
 def test_traversal_filename_stays_inside_the_batch_prefix(client, tmp_path):
@@ -106,7 +106,7 @@ def test_traversal_filename_stays_inside_the_batch_prefix(client, tmp_path):
     objects_root = tmp_path / "data" / "images"
     assert [p.name for p in objects_root.iterdir()] == [f"batch-{batch['id']}"]
     assert not (tmp_path / "escaped.png").exists()
-    image = client.get(f"/api/batches/{batch['id']}/images").json()[0]
+    image = client.get(f"/api/batches/{batch['id']}/images").json()["items"][0]
     assert image["filename"] == "escaped.png"
 
 
