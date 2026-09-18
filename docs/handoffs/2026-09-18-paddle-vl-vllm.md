@@ -44,8 +44,10 @@ the result must be reviewed manually.
 | Add VL client configuration | Complete | Server URL, max concurrency, and request timeout are exposed through `Settings` and Compose. A server backend without a URL fails clearly during warmup. |
 | Bound stalled VL requests | Complete | Linux `SIGALRM` bounds the PaddleX call at 600 seconds by default; the service layer records the resulting exception as an image failure. |
 | Preserve standard deployment | Complete | `.env` is locally restored to classic `paddle`; the VL overlay alone overrides the worker to `paddle_vl`. The normal GPU command remains unchanged. |
-| Pull official vLLM image | Complete | User resumed and completed the pull. Docker reports image `sha256:bffd5253...`, size 7,336,977,436 bytes. |
-| Start VL Compose stack | Blocked by host disk | Docker data is on `E:\DockerDesktop`; E: has only about 5 MB free. Containerd fails with `input/output error`, cannot create ingest temp files, and stops its WSL engine. Free at least 15-20 GB on E: before retrying. Do not delete `docker_data.vhdx` manually. |
+| Initial pull of official vLLM image | Complete, but invalidated | The initial offline image was `sha256:bffd5253...`, 7,336,977,436 bytes. It was pulled when Docker's E: data disk was full and containerd reported I/O errors. |
+| Diagnose VLM server startup failure | Complete | The server reached vLLM startup but failed with `JSONDecodeError: Expecting value: line 1 column 1`. Inspection inside the image proved that required model files (`preprocessor_config.json`, `processor_config.json`, `special_tokens_map.json`, `tokenizer.json`, `tokenizer.model`, and `tokenizer_config.json`) were zero bytes. Only a 109 MB partial `model.safetensors` existed. This is a corrupted/incomplete extracted image layer, not an Arabic, vLLM configuration, or GPU issue. |
+| Repair official vLLM image | In progress | The damaged `arabic-ocr-vlm-server` container and its image tag were removed safely. Re-pulling the same official offline image began after E: was freed to about 46 GB, but the user intentionally interrupted it. The image is currently absent and must be pulled again before Compose can start the VLM service. |
+| Start VL Compose stack | Blocked on completed re-pull | The normal services previously started, but the worker remains gated on a healthy VLM service. Do not start or assess Paddle-VL until the integrity check below passes. |
 | Run real Arabic fixture through vLLM | Pending | Must wait for Docker storage recovery and a healthy server. Do not claim Paddle-VL accuracy is verified until this passes. |
 | End-to-end UI upload test | Pending | After fixture smoke passes, upload the fixture and verify `queued -> running -> done`, Arabic rendering, and selectable polygons. |
 | Failure-path test | Pending | Stop the VLM service during a request and confirm the image becomes `failed` within the configured timeout rather than remaining `running`. |
@@ -59,8 +61,9 @@ the result must be reviewed manually.
 - PaddleX genai-client availability check passed inside the built image.
 - Server-backed `PaddleOCRVL` construction passed with `--network none`, proving
   the client does not download/load the 0.9B model locally.
-- The official Blackwell vLLM image is fully present locally after the user's
-  completed pull.
+- The initially pulled official Blackwell vLLM image was inspected and found to
+  have a corrupt/incomplete model layer following the earlier Docker disk-full
+  incident. It was deliberately removed; it must be re-pulled and validated.
 - Full Docker backend suite: `161 passed, 6 skipped, 1 deselected`.
 - Focused VL/config tests: `11 passed`.
 - Focused Ruff check passed. Repository-wide Ruff reports pre-existing
@@ -71,33 +74,45 @@ the result must be reviewed manually.
 
 Run from the repository root in PowerShell.
 
-Before these commands, ensure E: has at least 15-20 GB free. Docker Desktop's
-data folder is `E:\DockerDesktop`; at the last attempt its
-`disk\docker_data.vhdx` was about 63.2 GB and E: had only about 5 MB free.
-Starting Compose at that point crashed containerd with filesystem I/O errors.
-Do not remove or edit the VHDX manually.
+Before these commands, ensure E: retains at least 20 GB free throughout the
+pull. Docker Desktop's data folder is `E:\DockerDesktop`; it previously became
+full (`disk\docker_data.vhdx` was about 63.2 GB), producing containerd
+`input/output error` failures. E: was later freed to about 46 GB. Do not remove
+or edit the VHDX manually.
 
-1. Confirm Docker recovered and the already-pulled image is visible:
-
-   ```powershell
-   docker version
-   docker image inspect ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu-sm120-offline
-   ```
-
-2. Start the optional VL deployment:
+1. Re-pull the missing official image. This is the same image already selected
+   by the supported Blackwell deployment; no application image rebuild is
+   needed:
 
    ```powershell
-   docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml up -d --build
+   docker pull ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu-sm120-offline
    ```
 
-3. Wait for the VLM service and worker:
+2. Validate that the model payload was unpacked correctly before running it.
+   All listed files must be non-zero and the command must print `MODEL_CACHE_OK`:
+
+   ```powershell
+   docker run --rm --entrypoint /bin/bash ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu-sm120-offline -lc 'model_dir=/home/paddleocr/.paddlex/official_models/PaddleOCR-VL-1.6; for file in config.json preprocessor_config.json processor_config.json special_tokens_map.json tokenizer.json tokenizer.model tokenizer_config.json model.safetensors; do test -s "$model_dir/$file" || { echo "INVALID_OR_EMPTY: $file"; exit 1; }; done; echo MODEL_CACHE_OK'
+   ```
+
+   If this fails again with sufficient free disk space, stop and capture the
+   output; that would indicate an upstream image or Docker Desktop extraction
+   defect rather than an application configuration issue.
+
+3. Start the optional VL deployment without rebuilding unrelated images:
+
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml up -d
+   ```
+
+4. Wait for the VLM service and worker:
 
    ```powershell
    docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml ps
    docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml logs -f paddleocr-vlm-server worker
    ```
 
-4. Run the real Arabic fixture. The bind mount is required because production
+5. Run the real Arabic fixture. The bind mount is required because production
    images intentionally do not contain `scripts/` or `tests/`:
 
    ```powershell
@@ -112,13 +127,13 @@ Do not remove or edit the VHDX manually.
    - `السطر الثاني`
    - `اختبار التعرف الضوئي`
 
-5. Inspect GPU behavior during inference:
+6. Inspect GPU behavior during inference:
 
    ```powershell
    nvidia-smi -l 1
    ```
 
-6. After credentials are corrected, push the existing branch:
+7. After credentials are corrected, push the existing branch:
 
    ```powershell
    git push -u origin codex/paddle-vl-vllm
