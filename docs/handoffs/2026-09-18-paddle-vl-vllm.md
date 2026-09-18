@@ -44,8 +44,9 @@ the result must be reviewed manually.
 | Add VL client configuration | Complete | Server URL, max concurrency, and request timeout are exposed through `Settings` and Compose. A server backend without a URL fails clearly during warmup. |
 | Bound stalled VL requests | Complete | Linux `SIGALRM` bounds the PaddleX call at 600 seconds by default; the service layer records the resulting exception as an image failure. |
 | Preserve standard deployment | Complete | `.env` is locally restored to classic `paddle`; the VL overlay alone overrides the worker to `paddle_vl`. The normal GPU command remains unchanged. |
-| Pull official vLLM image | In progress / user-owned | Pull was stopped at the user's request. All completed layers are cached; the final 3.958 GB layer had reached about 1.126 GB. |
-| Run real Arabic fixture through vLLM | Pending | Must wait for the official image pull and healthy server. Do not claim Paddle-VL accuracy is verified until this passes. |
+| Pull official vLLM image | Complete | User resumed and completed the pull. Docker reports image `sha256:bffd5253...`, size 7,336,977,436 bytes. |
+| Start VL Compose stack | Blocked by host disk | Docker data is on `E:\DockerDesktop`; E: has only about 5 MB free. Containerd fails with `input/output error`, cannot create ingest temp files, and stops its WSL engine. Free at least 15-20 GB on E: before retrying. Do not delete `docker_data.vhdx` manually. |
+| Run real Arabic fixture through vLLM | Pending | Must wait for Docker storage recovery and a healthy server. Do not claim Paddle-VL accuracy is verified until this passes. |
 | End-to-end UI upload test | Pending | After fixture smoke passes, upload the fixture and verify `queued -> running -> done`, Arabic rendering, and selectable polygons. |
 | Failure-path test | Pending | Stop the VLM service during a request and confirm the image becomes `failed` within the configured timeout rather than remaining `running`. |
 | Push branch | Blocked by credentials | Origin rejected authenticated user `andoan-blueoc` with HTTP 403 for `HopVu-blueoc/arab-ocr`. Local commits and branch are intact. |
@@ -58,6 +59,8 @@ the result must be reviewed manually.
 - PaddleX genai-client availability check passed inside the built image.
 - Server-backed `PaddleOCRVL` construction passed with `--network none`, proving
   the client does not download/load the 0.9B model locally.
+- The official Blackwell vLLM image is fully present locally after the user's
+  completed pull.
 - Full Docker backend suite: `161 passed, 6 skipped, 1 deselected`.
 - Focused VL/config tests: `11 passed`.
 - Focused Ruff check passed. Repository-wide Ruff reports pre-existing
@@ -68,10 +71,17 @@ the result must be reviewed manually.
 
 Run from the repository root in PowerShell.
 
-1. Resume the one-time official image pull:
+Before these commands, ensure E: has at least 15-20 GB free. Docker Desktop's
+data folder is `E:\DockerDesktop`; at the last attempt its
+`disk\docker_data.vhdx` was about 63.2 GB and E: had only about 5 MB free.
+Starting Compose at that point crashed containerd with filesystem I/O errors.
+Do not remove or edit the VHDX manually.
+
+1. Confirm Docker recovered and the already-pulled image is visible:
 
    ```powershell
-   docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml pull paddleocr-vlm-server
+   docker version
+   docker image inspect ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu-sm120-offline
    ```
 
 2. Start the optional VL deployment:
