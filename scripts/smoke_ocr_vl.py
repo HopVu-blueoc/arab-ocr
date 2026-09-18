@@ -6,7 +6,8 @@ diagnosis of Paddle's local runtime.
 
 Usage:
     docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml \
-      exec worker python -u scripts/smoke_ocr_vl.py <image> [<image> ...]
+      run --rm --no-deps --volume "$PWD:/workspace" --workdir /workspace \
+      worker python -u scripts/smoke_ocr_vl.py <image> [<image> ...]
 """
 
 import sys

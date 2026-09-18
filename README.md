@@ -309,9 +309,10 @@ docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml logs -f pad
 Run the committed Arabic fixture through the actual engine after both services
 are healthy:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml exec worker \
-  python -u scripts/smoke_ocr_vl.py tests/fixtures/arabic_sample.png
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml run --rm --no-deps `
+  --volume "${PWD}:/workspace" --workdir /workspace `
+  worker python -u scripts/smoke_ocr_vl.py tests/fixtures/arabic_sample.png
 ```
 
 The overlay forces one Celery child and one VLM request at a time for a 16 GiB
