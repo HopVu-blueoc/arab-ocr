@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import Column, UniqueConstraint
+from sqlalchemy import Column, Index, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
@@ -27,6 +27,9 @@ class LineStatus(StrEnum):
 
 class Batch(SQLModel, table=True):
     __tablename__ = "batches"
+    # The batch list pages on (created_at DESC, id DESC). A plain ASC index
+    # serves a DESC scan - SQLite walks indexes in either direction.
+    __table_args__ = (Index("ix_batches_created_at_id", "created_at", "id"),)
 
     id: int | None = Field(default=None, primary_key=True)
     name: str
@@ -36,16 +39,41 @@ class Batch(SQLModel, table=True):
 
 class Image(SQLModel, table=True):
     __tablename__ = "images"
-    __table_args__ = (UniqueConstraint("sha256", name="uq_images_sha256"),)
+    __table_args__ = (
+        UniqueConstraint("sha256", name="uq_images_sha256"),
+        # Covers the per-batch status aggregate behind the batch list. No
+        # separate index on batch_id: this one's left prefix serves it.
+        Index("ix_images_batch_id_status", "batch_id", "status"),
+        # The image list pages on (filename ASC, id ASC) within one batch.
+        Index("ix_images_batch_id_filename_id", "batch_id", "filename", "id"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
-    batch_id: int = Field(foreign_key="batches.id", index=True)
+    batch_id: int = Field(foreign_key="batches.id")
     path: str
     filename: str
-    sha256: str = Field(index=True)
+    # No index=True: uq_images_sha256 already creates one, and a second copy is
+    # pure write amplification on every insert.
+    sha256: str
     width: int
     height: int
-    status: ImageStatus = Field(default=ImageStatus.pending, index=True)
+    # No index=True: nothing filters status on its own - the only reader is the
+    # aggregate above, which is served by ix_images_batch_id_status.
+    status: ImageStatus = Field(default=ImageStatus.pending)
+    # Bumped each time OCR is (re)dispatched for this image, and carried on the
+    # queued task's arguments. A worker claims the job with an atomic
+    # UPDATE ... WHERE status='queued' AND ocr_generation=:generation - a
+    # redelivered or duplicate message for a stale generation or a
+    # no-longer-queued image matches zero rows and is a no-op. This is what
+    # stops a task that got redelivered after already completing (acks_late +
+    # reject_on_worker_lost can do this on a killed worker) from re-running
+    # OCR and deleting reviewer corrections. See app/service.py:claim_for_ocr.
+    ocr_generation: int = Field(default=1)
+    # Set only once dispatch.enqueue_image's Celery publish actually succeeds.
+    # A row that is status='queued' with this still None past a short grace
+    # period never got a message at all - see app/reconcile.py - which a
+    # normal backlog (published, just waiting its turn) cannot produce.
+    enqueued_at: datetime | None = Field(default=None)
     error: str | None = None
     ocr_ms: int | None = None
     created_at: datetime = Field(default_factory=utcnow)
@@ -54,9 +82,11 @@ class Image(SQLModel, table=True):
 
 class Line(SQLModel, table=True):
     __tablename__ = "lines"
+    # Every read of a line is "the lines of this image, in reading order".
+    __table_args__ = (Index("ix_lines_image_id_reading_order", "image_id", "reading_order"),)
 
     id: int | None = Field(default=None, primary_key=True)
-    image_id: int = Field(foreign_key="images.id", index=True)
+    image_id: int = Field(foreign_key="images.id")
     reading_order: int
     rec_text: str
     corrected_text: str | None = None

@@ -35,6 +35,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev --no-cache
 
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 RUN uv sync --frozen --no-dev --no-cache
 
 # Swap the CPU paddlepaddle the lockfile resolved for the GPU build. Done as

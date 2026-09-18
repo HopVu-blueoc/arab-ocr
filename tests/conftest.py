@@ -6,11 +6,16 @@ from sqlmodel.pool import StaticPool
 
 @pytest.fixture
 def engine():
+    from app.db import apply_sqlite_pragmas
+
     eng = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    # The PRAGMA hook is registered per-engine now, so this fixture has to ask
+    # for it: without the call it silently runs without foreign_keys=ON.
+    apply_sqlite_pragmas(eng)
     SQLModel.metadata.create_all(eng)
     return eng
 

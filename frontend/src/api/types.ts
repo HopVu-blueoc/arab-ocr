@@ -1,6 +1,16 @@
 export type ImageStatus = "pending" | "queued" | "running" | "done" | "failed" | "approved";
 export type LineStatus = "unreviewed" | "approved" | "edited";
 
+/** One keyset page. `next_cursor` is null on the last page.
+ *
+ * No total: counting the whole set server-side is a full scan on every poll,
+ * and nothing here displays one.
+ */
+export interface PageDto<T> {
+  items: T[];
+  next_cursor: string | null;
+}
+
 export interface LineDto {
   id: number;
   reading_order: number;

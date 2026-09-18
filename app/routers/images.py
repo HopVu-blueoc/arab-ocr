@@ -4,15 +4,15 @@ from pathlib import Path
 from typing import BinaryIO
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import select
 
+from app.config import get_settings
 from app.db import SessionDep
 from app.dispatch import enqueue_image, get_engine
 from app.models import Image, ImageStatus, Line, utcnow
-from app.ocr.crops import load_bgr
-from app.ocr.reading_order import reorder_lines
 from app.schemas import DetectBoxRequest, ImageDetailOut, ImageOut, ImageUpdate, LineOut
+from app.service import detect_box_for_image
 from app.storage import ObjectNotFound, get_storage
 
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -71,10 +71,23 @@ APPROVABLE = {ImageStatus.done, ImageStatus.approved}
 
 @router.patch("/{image_id}", response_model=ImageOut)
 def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Image:
+    """The only reviewer-meaningful transition here is approving.
+
+    Every other status is either a job-lifecycle state `claim_for_ocr` owns
+    exclusively, or a place a client could otherwise use this endpoint to walk
+    a `done` image back to `failed` and then hit `/retry` - which would bypass
+    the generation guard that protects reviewer corrections entirely, since
+    `retry` trusts `status == failed` as its only precondition.
+    """
+    if payload.status is not ImageStatus.approved:
+        raise HTTPException(
+            status_code=422, detail="status can only be set to 'approved' here"
+        )
+
     image = session.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="image not found")
-    if payload.status is ImageStatus.approved and image.status not in APPROVABLE:
+    if image.status not in APPROVABLE:
         raise HTTPException(
             status_code=409, detail=f"cannot approve an image in state {image.status}"
         )
@@ -91,9 +104,15 @@ def update_image(image_id: int, payload: ImageUpdate, session: SessionDep) -> Im
 def retry_image(image_id: int, session: SessionDep) -> Image:
     """Re-run OCR on a failed image.
 
-    Only from `failed`: `run_ocr_for_image` deletes and recreates every Line
-    row on each run, so retrying a `done`/`approved` image would destroy any
-    corrections the reviewer already made.
+    Only from `failed`: a `done`/`approved` image may carry reviewer
+    corrections, and `run_ocr_for_image` still deletes and recreates every
+    Line row on a run it actually claims.
+
+    Bumping ocr_generation is what makes this a deliberate new run rather than
+    a stale message reviving: the worker only claims a task whose generation
+    matches the row's current one (see app/service.py:claim_for_ocr), so any
+    task still in flight for the old generation - including one this same
+    request superseded - can never re-run against this row.
     """
     image = session.get(Image, image_id)
     if image is None:
@@ -105,12 +124,14 @@ def retry_image(image_id: int, session: SessionDep) -> Image:
 
     image.status = ImageStatus.queued
     image.error = None
+    image.ocr_generation += 1
+    image.enqueued_at = None  # this generation has no publish yet
     image.updated_at = utcnow()
     session.add(image)
     session.commit()
     session.refresh(image)
 
-    enqueue_image(image.id)
+    enqueue_image(image.id, image.ocr_generation)
     session.refresh(image)  # the inline job backend advances status synchronously
     return image
 
@@ -118,16 +139,27 @@ def retry_image(image_id: int, session: SessionDep) -> Image:
 MIN_MANUAL_BOX_SIDE = 8  # image pixels; a stray click, not a drag
 
 
-@router.post("/{image_id}/lines/detect-box", response_model=list[LineOut])
-def detect_box(image_id: int, payload: DetectBoxRequest, session: SessionDep) -> list[LineOut]:
-    image = session.get(Image, image_id)
-    if image is None:
-        raise HTTPException(status_code=404, detail="image not found")
+@router.post("/{image_id}/lines/detect-box")
+def detect_box(image_id: int, payload: DetectBoxRequest, session: SessionDep):
+    """Recognise one reviewer-drawn box.
 
+    Cheap validation (box size, image existence, engine capability) happens
+    synchronously here - none of it touches OCR models. The actual
+    recognition (app/service.py:detect_box_for_image) runs wherever
+    JOB_BACKEND says: inline mode calls it directly and returns the updated
+    lines at 200, same as before; celery mode dispatches it to the worker and
+    returns 202 with a job id for GET /api/jobs/{job_id} to poll. Running
+    inference here in the API process was the actual defect - this container
+    has no GPU in the deployed topology (only `worker` does), and nothing
+    serialises concurrent request threads sharing one engine singleton.
+    """
     xs = [p[0] for p in payload.polygon]
     ys = [p[1] for p in payload.polygon]
     if max(xs) - min(xs) < MIN_MANUAL_BOX_SIDE or max(ys) - min(ys) < MIN_MANUAL_BOX_SIDE:
         raise HTTPException(status_code=400, detail="box is too small")
+
+    if session.get(Image, image_id) is None:
+        raise HTTPException(status_code=404, detail="image not found")
 
     engine = get_engine()
     if not hasattr(engine, "recognize_quad"):
@@ -136,32 +168,13 @@ def detect_box(image_id: int, payload: DetectBoxRequest, session: SessionDep) ->
             detail="manual box detection isn't supported with the paddle_vl engine",
         )
 
-    with get_storage().as_local_path(image.path) as local_path:
-        array = load_bgr(local_path)
+    if get_settings().job_backend == "celery":
+        from app.worker.tasks import detect_box_task
 
-    polygon = [(float(x), float(y)) for x, y in payload.polygon]
-    candidate = engine.recognize_quad(array, polygon)
-    if candidate is None:
-        raise HTTPException(status_code=422, detail="no text found in that region")
+        job = detect_box_task.delay(image_id, payload.polygon)
+        return JSONResponse(status_code=202, content={"job_id": job.id})
 
-    session.add(
-        Line(
-            image_id=image.id,
-            reading_order=0,  # placeholder; overwritten by the re-sort below
-            rec_text=candidate.text,
-            score=candidate.score,
-            polygon=[[x, y] for x, y in polygon],
-        )
-    )
-    session.commit()
-
-    all_lines = session.exec(select(Line).where(Line.image_id == image_id)).all()
-    for index, line in enumerate(reorder_lines(all_lines)):
-        line.reading_order = index
-        session.add(line)
-    session.commit()
-
-    ordered = session.exec(
-        select(Line).where(Line.image_id == image_id).order_by(Line.reading_order)
-    ).all()
-    return [line_out(ln) for ln in ordered]
+    result = detect_box_for_image(session, image_id, payload.polygon, engine)
+    if not result["ok"]:
+        raise HTTPException(status_code=result["status_code"], detail=result["reason"])
+    return result["lines"]

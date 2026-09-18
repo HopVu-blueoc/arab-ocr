@@ -2,6 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: arabic-ocr-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -16,6 +17,7 @@ services:
   rustfs:
     image: rustfs/rustfs:latest
     container_name: arabic-ocr-rustfs
+    restart: unless-stopped
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # web console
@@ -41,6 +43,7 @@ services:
     platform: linux/amd64
     image: arabic-ocr-api
     container_name: arabic-ocr-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment: &backend-env
@@ -53,6 +56,43 @@ services:
       REDIS_URL: redis://redis:6379/0
       JOB_BACKEND: celery
       OCR_DEVICE: ${OCR_DEVICE:-cpu}
+      # .env is never copied into the image and compose has no env_file:, so
+      # any Settings field missing from this list silently falls back to its
+      # Python default no matter what .env says. Every field in app/config.py
+      # is listed here for exactly that reason - a tuning knob an operator
+      # sets in .env must actually reach the container or the docs are lying.
+      S3_REGION: ${S3_REGION:-us-east-1}
+      REVIEWER_NAME: ${REVIEWER_NAME:-reviewer}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      # MAX_REQUEST_MB must stay at or below nginx's client_max_body_size.
+      MAX_REQUEST_MB: ${MAX_REQUEST_MB:-100}
+      OCR_ENGINE: ${OCR_ENGINE:-paddle}
+      OCR_VL_MODEL_NAME: ${OCR_VL_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
+      OCR_VL_BACKEND: ${OCR_VL_BACKEND:-native}
+      OCR_REC_MODEL: ${OCR_REC_MODEL:-arabic_PP-OCRv5_mobile_rec}
+      OCR_DET_MODEL: ${OCR_DET_MODEL:-PP-OCRv5_server_det}
+      OCR_LATIN_REC_MODEL: ${OCR_LATIN_REC_MODEL:-latin_PP-OCRv5_mobile_rec}
+      # Empty means "unset" (PaddleOCR's own default) - Settings treats an
+      # empty string the same as never having set the variable at all.
+      OCR_DET_LIMIT_SIDE_LEN: ${OCR_DET_LIMIT_SIDE_LEN:-}
+      OCR_DET_THRESH: ${OCR_DET_THRESH:-}
+      OCR_DET_BOX_THRESH: ${OCR_DET_BOX_THRESH:-}
+      OCR_DET_UNCLIP_RATIO: ${OCR_DET_UNCLIP_RATIO:-}
+      OCR_PIPELINE_REC_SCORE_THRESH: ${OCR_PIPELINE_REC_SCORE_THRESH:-0.0}
+      OCR_REC_SCORE_THRESH: ${OCR_REC_SCORE_THRESH:-0.3}
+      OCR_MIN_BOX_SIDE: ${OCR_MIN_BOX_SIDE:-0}
+      OCR_USE_TEXTLINE_ORIENTATION: ${OCR_USE_TEXTLINE_ORIENTATION:-false}
+      OCR_USE_DOC_ORIENTATION_CLASSIFY: ${OCR_USE_DOC_ORIENTATION_CLASSIFY:-false}
+      OCR_USE_DOC_UNWARPING: ${OCR_USE_DOC_UNWARPING:-false}
+      OCR_SECOND_PASS: ${OCR_SECOND_PASS:-true}
+      OCR_SECOND_PASS_MAX_SCORE: ${OCR_SECOND_PASS_MAX_SCORE:-0.85}
+      OCR_RESCUE_MIN_GAIN: ${OCR_RESCUE_MIN_GAIN:-0.15}
+      OCR_CROP_TARGET_HEIGHT: ${OCR_CROP_TARGET_HEIGHT:-64}
+      OCR_CROP_MAX_UPSCALE: ${OCR_CROP_MAX_UPSCALE:-4.0}
+      OCR_CROP_CLAHE: ${OCR_CROP_CLAHE:-true}
+      RECONCILE_ENQUEUE_GRACE_SECONDS: ${RECONCILE_ENQUEUE_GRACE_SECONDS:-30}
+      RECONCILE_RUNNING_TIMEOUT_SECONDS: ${RECONCILE_RUNNING_TIMEOUT_SECONDS:-1800}
+      RECONCILE_INTERVAL_SECONDS: ${RECONCILE_INTERVAL_SECONDS:-60}
     volumes:
       - app-data:/app/data
     depends_on:
@@ -60,11 +100,33 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Runs to completion before api and worker start. The schema is applied from
+  # exactly one process: api and worker share one SQLite file and would race to
+  # build it if each migrated on startup.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: arabic-ocr-api
+    platform: linux/amd64
+    container_name: arabic-ocr-migrate
+    command: ["python", "-m", "app.migrate"]
+    environment: *backend-env
+    volumes:
+      - app-data:/app/data
+    # Deliberately not unless-stopped like every other service: a migration
+    # that fails should surface immediately (docker compose up exits
+    # non-zero, api/worker never start per depends_on), not restart-loop
+    # silently against a database it may have left half-migrated.
+    restart: "no"
 
   worker:
     build:
@@ -74,8 +136,14 @@ services:
                              # compose since context+dockerfile are identical
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-worker
+    restart: unless-stopped
+    # -B embeds Celery beat in this same process, driving the reconcile
+    # sweep (app/reconcile.py). Only correct with exactly one worker
+    # container, which is this compose file's current shape - splitting
+    # beat into its own service is required before scaling worker replicas,
+    # or each replica schedules the sweep redundantly.
     command: ["celery", "-A", "app.worker.celery_app.celery", "worker",
-      "--loglevel=info", "--pool=prefork", "--concurrency=2"]
+      "--loglevel=info", "--pool=prefork", "--concurrency=2", "-B"]
     environment: *backend-env
     volumes:
       - app-data:/app/data
@@ -90,6 +158,8 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   flower:
     image: arabic-ocr-api   # same image as api/worker; flower isn't a
@@ -97,6 +167,7 @@ services:
                              # it for just this one invocation
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-flower
+    restart: unless-stopped
     command: ["uv", "run", "--with", "flower",
       "celery", "-A", "app.worker.celery_app.celery", "flower", "--port=5555"]
     environment:
@@ -112,6 +183,7 @@ services:
       context: .
       dockerfile: docker/frontend.Dockerfile
     container_name: arabic-ocr-frontend
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:

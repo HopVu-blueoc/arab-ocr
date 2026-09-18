@@ -8,6 +8,18 @@ services:
   worker:
     build:
       dockerfile: docker/api.gpu.Dockerfile
+    # A separate tag from the base file's `arabic-ocr-api` is load-bearing,
+    # not cosmetic: api/migrate/worker all build from that one tag in
+    # docker-compose.yml, and this file only overrides worker's dockerfile,
+    # not its image name. Building both files together with a shared tag
+    # means whichever Dockerfile finishes last silently overwrites the tag
+    # for every service using it - the CPU api/migrate build finishing after
+    # this one would leave `worker` running the CPU image with no CUDA at
+    # all, despite OCR_DEVICE=gpu:0, and paddle would just never touch a GPU
+    # with no error to notice by. Confirmed this actually happens, not
+    # theoretical: worker ran python:3.12-slim (no nvidia/cuda base layer at
+    # all) after a combined `up -d --build` across both files.
+    image: arabic-ocr-worker-gpu
     environment:
       OCR_DEVICE: gpu:0
     deploy:

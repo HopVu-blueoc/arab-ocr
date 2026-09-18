@@ -8,3 +8,9 @@ frontend/dist/
 .DS_Store
 .serena/
 .worktrees/
+
+# Benchmark corpora pulled from Hugging Face (EvArEST street signs, Muharaf
+# handwriting). Tens of thousands of files and ~60MB - fetch them locally
+# rather than carrying them in the repo. tests/data/pack1 IS tracked.
+tests/data/evarest/
+tests/data/muharaf/

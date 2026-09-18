@@ -5,6 +5,17 @@ from pydantic import BaseModel
 from app.models import ImageStatus, LineStatus
 
 
+class Page[T](BaseModel):
+    """One page of a keyset-paginated list.
+
+    No `total`: counting the whole set is a full scan on every poll, and
+    nothing in the UI displays one. `next_cursor` is None on the last page.
+    """
+
+    items: list[T]
+    next_cursor: str | None = None
+
+
 class BatchCreate(BaseModel):
     name: str
 

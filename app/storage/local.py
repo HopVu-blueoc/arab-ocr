@@ -51,5 +51,10 @@ class LocalStorage:
     def delete(self, key: str) -> None:
         self._resolve(key).unlink(missing_ok=True)
 
+    def delete_many(self, keys: list[str]) -> None:
+        # No batch syscall to exploit; the loop is the whole implementation.
+        for key in keys:
+            self.delete(key)
+
     def exists(self, key: str) -> bool:
         return self._resolve(key).is_file()

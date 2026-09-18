@@ -42,6 +42,15 @@ celery.conf.update(
     worker_prefetch_multiplier=1,  # no hoarding; long tasks spread evenly
     task_track_started=True,
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        # Recovers jobs the normal upload/retry flow lost track of - a
+        # publish that never happened, or a worker crash Celery's own
+        # redelivery didn't catch. See app/reconcile.py.
+        "reconcile-stuck-jobs": {
+            "task": "app.reconcile_stuck_jobs",
+            "schedule": settings.reconcile_interval_seconds,
+        },
+    },
 )
 
 

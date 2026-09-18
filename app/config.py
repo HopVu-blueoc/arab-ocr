@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,21 @@ class Settings(BaseSettings):
     # Per-file upload cap. Enforced while streaming, so an oversize file never
     # gets fully written. Scene photos from a phone are 3-8MB.
     max_upload_mb: int = 25
+
+    # Cap on one multipart request's total size. Separate from the per-file cap
+    # because the proxy rejects on the whole body: 20 files of 3MB each are
+    # individually fine and together a 413. The frontend reads this from
+    # /api/limits and packs requests to fit, and docker/nginx.conf's
+    # client_max_body_size must stay at or above it (tests/test_limits.py).
+    max_request_mb: int = 100
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * (1 << 20)
+
+    @property
+    def max_request_bytes(self) -> int:
+        return self.max_request_mb * (1 << 20)
 
     # Which OcrEngine to build.
     #
@@ -66,6 +82,22 @@ class Settings(BaseSettings):
     ocr_det_thresh: float | None = None
     ocr_det_box_thresh: float | None = None
     ocr_det_unclip_ratio: float | None = None
+
+    @field_validator(
+        "ocr_det_limit_side_len",
+        "ocr_det_thresh",
+        "ocr_det_box_thresh",
+        "ocr_det_unclip_ratio",
+        mode="before",
+    )
+    @classmethod
+    def _blank_env_var_means_unset(cls, value: object) -> object:
+        """docker-compose.yml passes these as `${VAR:-}` - unset on the host
+        becomes an empty string in the container, not a missing key, and
+        pydantic would otherwise reject "" as an int/float."""
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
     # Keep the pipeline's own filter open so weak lines survive long enough to
     # be re-read by the second pass; the real filter is applied afterwards.
     ocr_pipeline_rec_score_thresh: float = 0.0
@@ -111,6 +143,28 @@ class Settings(BaseSettings):
     # genuinely only a few pixels tall yet still reads fine. Small is not the
     # same as spurious. Results with no letter or digit are still dropped.
     ocr_min_box_side: int = 0
+
+    # --- OCR job reconciliation ------------------------------------------
+    # Backstop for a request that stored and committed an image as `queued`
+    # but never successfully published its Celery message - Redis was down,
+    # or the API process died between the commit and the publish. Nothing
+    # else will ever redeliver a message that was never sent.
+    # enqueued_at is set only once a publish actually succeeds, so a row
+    # stuck at NULL past this grace period genuinely never got a message -
+    # unlike a normal deep backlog, where enqueued_at is set the moment the
+    # message went out, however long the job then waits its turn.
+    reconcile_enqueue_grace_seconds: int = 30
+    # Backstop for a job whose worker died in a way Celery's own
+    # task_reject_on_worker_lost redelivery didn't recover from (e.g. the
+    # broker itself lost the unacked message before the crash was detected).
+    # Long on purpose: OCR time varies with image size and second-pass
+    # rescues, and reassigning a job that is actually still running risks two
+    # commits racing for the same row. Tune to comfortably exceed your
+    # slowest real image.
+    reconcile_running_timeout_seconds: int = 1800
+    # How often the sweep runs - Celery beat, embedded in the worker process
+    # (see docker-compose.yml's worker command and celery_app.py).
+    reconcile_interval_seconds: int = 60
 
     @property
     def db_path(self) -> Path:
