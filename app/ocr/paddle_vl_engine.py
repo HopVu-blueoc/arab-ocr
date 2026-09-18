@@ -10,9 +10,10 @@ pipeline sends the whole image to the VLM once and parses its generated
 That is what makes this pluggable behind the same OcrEngine protocol without
 touching the box-linking UI, which depends on one polygon per line.
 
-Not yet benchmarked on tests/data/pack1 - do that before trusting it on
-customer images. Expect it to be much slower than the CNN pipeline on CPU;
-it is a real fit for the CUDA box, not this Mac.
+The supported deployment uses a dedicated vLLM service. The worker remains a
+CPU client and sends only the VLM recognition stage to the internal GPU
+service; this avoids loading or duplicating the 0.9B model in API/Celery
+processes. Native mode remains available for bounded diagnostics only.
 
 Score caveat: a generative model has no per-line softmax confidence the way
 a CTC recognizer does. spotting_res carries no score, so every line here
@@ -20,7 +21,11 @@ gets 1.0. OCR_REC_SCORE_THRESH is effectively a no-op for this engine -
 review every line manually rather than trusting the number.
 """
 
+import signal
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import FrameType
 
 from app.config import Settings, get_settings
 from app.ocr.crops import has_content, load_bgr
@@ -61,19 +66,33 @@ class PaddleOcrVLEngine:
 
         if self._pipeline is None:
             s = self.settings
-            self._pipeline = PaddleOCRVL(
-                vl_rec_model_name=s.ocr_vl_model_name,
-                vl_rec_backend=s.ocr_vl_backend,
-                use_layout_detection=False,
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                device=s.ocr_device,
-            )
+            kwargs = {
+                "vl_rec_model_name": s.ocr_vl_model_name,
+                "vl_rec_backend": s.ocr_vl_backend,
+                "use_layout_detection": False,
+                "use_doc_orientation_classify": False,
+                "use_doc_unwarping": False,
+                "device": s.ocr_device,
+            }
+            if s.ocr_vl_backend.endswith("-server"):
+                if not s.ocr_vl_server_url:
+                    raise ValueError(
+                        "OCR_VL_SERVER_URL is required when OCR_VL_BACKEND "
+                        f"is {s.ocr_vl_backend!r}"
+                    )
+                kwargs.update(
+                    vl_rec_server_url=s.ocr_vl_server_url,
+                    vl_rec_max_concurrency=s.ocr_vl_max_concurrency,
+                )
+            self._pipeline = PaddleOCRVL(**kwargs)
 
     def run(self, image_path: Path) -> OcrResult:
         self.warmup()
 
-        results = list(self._pipeline.predict(str(image_path), prompt_label="spotting"))
+        with _request_timeout(self.settings.ocr_vl_request_timeout_seconds):
+            results = list(self._pipeline.predict(str(image_path), prompt_label="spotting"))
+        if not results:
+            raise RuntimeError("PaddleOCR-VL returned no result")
         payload = results[0].json
 
         image = load_bgr(image_path)
@@ -83,3 +102,29 @@ class PaddleOcrVLEngine:
 
         lines = parse_spotting_result(payload, width=width, height=height)
         return OcrResult(width=width, height=height, lines=lines)
+
+
+@contextmanager
+def _request_timeout(seconds: int) -> Iterator[None]:
+    """Bound a VL service request in the Linux Celery child process.
+
+    PaddleX does not expose an HTTP timeout on PaddleOCRVL. SIGALRM is safe
+    here because each prefork child executes the task on its main thread and
+    all supported application execution is inside Linux containers.
+    """
+    if seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def raise_timeout(_signum: int, _frame: FrameType | None) -> None:
+        raise TimeoutError(f"PaddleOCR-VL request exceeded {seconds} seconds")
+
+    previous_handler = signal.signal(signal.SIGALRM, raise_timeout)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)

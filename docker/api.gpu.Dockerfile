@@ -32,19 +32,26 @@ RUN uv python install 3.12
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev --no-cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
 
 COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
-RUN uv sync --frozen --no-dev --no-cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
-# Swap the CPU paddlepaddle the lockfile resolved for the GPU build. Done as
-# a plain `uv pip install` (not `uv sync`, which would just reinstall the CPU
-# wheel to match the lockfile) - this is the one dependency this image
-# deliberately diverges from uv.lock for.
-RUN uv pip install "paddlepaddle-gpu==3.3.1" \
-    -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+# Swap the CPU distribution resolved by uv for the GPU distribution. Paddle
+# explicitly forbids installing both packages together: they own the same
+# `paddle` modules and native libraries, so keeping both produces an undefined
+# runtime even when `paddle.utils.run_check()` happens to pass.
+RUN uv pip uninstall paddlepaddle \
+    && uv pip install --force-reinstall "paddlepaddle-gpu==3.3.1" \
+      -i https://www.paddlepaddle.org.cn/packages/stable/cu129/ \
+    && uv pip show paddlepaddle-gpu \
+    && ! uv pip show paddlepaddle
+
+RUN .venv/bin/python -c "from paddlex.utils.deps import is_genai_client_plugin_available as available; assert available(), 'PaddleX genai-client plugin is unavailable'"
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

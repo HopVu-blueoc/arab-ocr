@@ -2,6 +2,9 @@
 
 OCR a folder of Arabic images with PaddleOCR, then verify the output side by side.
 
+On Windows, run the application, maintenance commands, and tests through
+Docker. The Python environment has not been validated directly on Windows.
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or any
@@ -100,23 +103,14 @@ Two real upgrade paths, in order of effort:
    reviewer fixed), so every correction is already a labelled training pair.
    Export gives `image → label`. A few thousand reviewed lines is the normal
    amount needed, and this is the only path that fixes the domain gap.
-2. **PaddleOCR-VL** — wired in (`app/ocr/paddle_vl_engine.py`,
-   `OCR_ENGINE=paddle_vl`) but **experimental and not used in production**: at
-   ~1B params it is far too slow for a large corpus on CPU, and it **does not
-   currently work on this Mac at all**.
-   Tried on 2026-09-04: `pip install "paddlex[ocr]"` is required first (a
-   `DependencyError` otherwise); after that the model downloads (~1.9GB) and
-   loads its weights fine, but the forward pass hangs - the process sits in
-   uninterruptible sleep (`U+` in `ps`), burning almost no CPU over several
-   minutes, alongside a `Bucketed engine_config has no entry for resolved
-   engine 'paddle_dynamic'; using an empty config for that engine` warning
-   at exactly the point it stops responding. This is not a GPU problem -
-   PaddlePaddle has no Apple Silicon GPU backend at all, so it was always
-   running on CPU (`device="cpu"` is set explicitly) - it looks like a
-   genuine engine/backend bug in this release rather than "slow but working".
-   Likely fine on the CUDA box, where `native` backend + an actual GPU is
-   the combination it's built for. Try `scripts/smoke_ocr_vl.py` there;
-   don't rely on it here.
+2. **PaddleOCR-VL** — available as an optional, service-backed engine through
+   `docker-compose.paddle-vl.yml`. It is not the default. The existing Celery
+   worker performs image preparation and result conversion while Paddle's
+   Blackwell vLLM image owns the GPU and keeps the 0.9B model loaded. The
+   current integration uses whole-image `spotting` so it can return one text
+   polygon per line to the existing review UI. PaddleOCR-VL does not expose
+   per-line confidence, so these lines use a synthetic score of `1.0` and
+   require manual review.
 
 ### Tuning the knobs
 
@@ -279,17 +273,51 @@ has if the corpus matters.
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
-Swaps `worker` to `docker/api.gpu.Dockerfile` (an NVIDIA CUDA 12.6 base image
-plus `paddlepaddle-gpu==3.3.1`, installed from PaddlePaddle's own package
-index) and reserves a GPU via the NVIDIA Container Toolkit. **Unverified** —
-built against PaddlePaddle's documented install path, not tested against an
-actual GPU, since none was available while writing it. Sanity-check on the
-real box first:
+Swaps `worker` to `docker/api.gpu.Dockerfile` (an NVIDIA CUDA 12.9 base image
+plus `paddlepaddle-gpu==3.3.1`, installed from PaddlePaddle's CUDA 12.9 package
+index) and reserves a GPU via the NVIDIA Container Toolkit. The image removes
+the CPU `paddlepaddle` distribution before installing the GPU distribution;
+the two packages must not coexist. This path has been checked on an RTX 5060
+Ti / Blackwell host. Sanity-check after rebuilding:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm worker \
   python -c "import paddle; paddle.utils.run_check()"
 ```
+
+### Optional PaddleOCR-VL (Blackwell)
+
+PaddleOCR-VL uses a separate Compose overlay. Do not combine this overlay with
+`docker-compose.gpu.yml`: the Celery worker stays on the CPU application image
+and the internal vLLM service exclusively owns GPU 0.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml pull paddleocr-vlm-server
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml up -d --build
+```
+
+The first pull is large because this uses Paddle's offline Blackwell image.
+The service is not published to the host; only the worker can reach it at
+`http://paddleocr-vlm-server:8118/v1`. Startup can take several minutes, and
+the worker waits for its health check before starting. Watch readiness with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml ps
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml logs -f paddleocr-vlm-server worker
+```
+
+Run the committed Arabic fixture through the actual engine after both services
+are healthy:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml exec worker \
+  python -u scripts/smoke_ocr_vl.py tests/fixtures/arabic_sample.png
+```
+
+The overlay forces one Celery child and one VLM request at a time for a 16 GiB
+GPU. A request that exceeds `OCR_VL_REQUEST_TIMEOUT_SECONDS` (600 seconds by
+default) fails visibly instead of leaving the image in `running`. Manual box
+recognition is not implemented for this engine and continues to return `501`.
 
 ## Review workflow
 
@@ -333,9 +361,13 @@ algorithm renders them.
 ## Tests
 
 ```bash
-uv run pytest              # fast; uses a fake OCR engine, no model download
-uv run pytest -m slow      # real PaddleOCR against tests/fixtures/arabic_sample.png
-cd frontend && npm test
+docker compose build api
+docker build -f docker/test.Dockerfile -t arab-ocr-test .
+docker run --rm arab-ocr-test
+
+docker build --build-arg BASE=arabic-ocr-worker-gpu \
+  -f docker/test.Dockerfile -t arab-ocr-test-gpu .
+docker run --rm --gpus all arab-ocr-test-gpu python -m pytest -m slow
 ```
 
 `tests/fixtures/arabic_sample.png` is generated by `scripts/make_fixture.py`

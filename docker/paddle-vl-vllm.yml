@@ -1,0 +1,4 @@
+# Conservative settings for one 16 GiB Blackwell GPU and one sequential OCR
+# worker. PaddleOCR passes this file through to vLLM.
+gpu-memory-utilization: 0.7
+max-num-seqs: 1

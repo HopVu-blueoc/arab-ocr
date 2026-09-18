@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "paddleocr>=3.7.0",
     "paddlepaddle>=3.3.1",
-    "paddlex[ocr]==3.7.2",
+    "paddlex[ocr,genai-client]==3.7.2",
     "pillow>=12.3.0",
     "pydantic-settings>=2.15.0",
     "python-multipart>=0.0.32",

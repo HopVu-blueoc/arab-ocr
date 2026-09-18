@@ -45,18 +45,20 @@ class Settings(BaseSettings):
 
     # Which OcrEngine to build.
     #
-    # "paddle" (default, the only supported value for production) = the
+    # "paddle" (default) = the
     # detector+CRNN pipeline configured below: arabic_PP-OCRv5_mobile_rec for
     # recognition, PP-OCRv5_server_det for detection.
     #
-    # "paddle_vl" = PaddleOCR-VL, a ~1B-param vision-language model.
-    # EXPERIMENTAL, not for on-prem deployment: it hangs on this Mac's CPU
-    # (see README) and at ~1B params it is too heavy for batch throughput on a
-    # large corpus. Kept wired up because it sits behind the OcrEngine
-    # protocol and costs nothing to leave in place.
+    # "paddle_vl" = optional PaddleOCR-VL service-backed engine. The normal
+    # deployment keeps PaddleOCR as the default; docker-compose.paddle-vl.yml
+    # switches only the worker to this engine and starts the internal VLM
+    # service.
     ocr_engine: str = "paddle"
     ocr_vl_model_name: str = "PaddleOCR-VL-1.6-0.9B"
     ocr_vl_backend: str = "native"
+    ocr_vl_server_url: str | None = None
+    ocr_vl_max_concurrency: int = 1
+    ocr_vl_request_timeout_seconds: int = 600
 
     ocr_rec_model: str = "arabic_PP-OCRv5_mobile_rec"
     # Server detector: ~10x slower on CPU than mobile (4.8s vs 0.45s per
@@ -84,6 +86,7 @@ class Settings(BaseSettings):
     ocr_det_unclip_ratio: float | None = None
 
     @field_validator(
+        "ocr_vl_server_url",
         "ocr_det_limit_side_len",
         "ocr_det_thresh",
         "ocr_det_box_thresh",

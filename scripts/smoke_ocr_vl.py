@@ -1,12 +1,12 @@
 """Smoke-test PaddleOCR-VL directly, no Celery/FastAPI in the way.
 
-First run downloads the ~1B-param model (multiple GB) and will be slow on
-this Mac's CPU - could be minutes per image. That is expected; this engine
-is meant for the CUDA box. Use this script to sanity-check accuracy on a
-handful of images before deciding whether to wait for CUDA or use it now.
+In the supported deployment this script runs in the CPU worker container and
+calls the internal vLLM GPU service. Native mode is retained only for bounded
+diagnosis of Paddle's local runtime.
 
 Usage:
-    uv run python -u scripts/smoke_ocr_vl.py <image> [<image> ...]
+    docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml \
+      exec worker python -u scripts/smoke_ocr_vl.py <image> [<image> ...]
 """
 
 import sys
@@ -26,7 +26,7 @@ def main() -> int:
         return 1
 
     engine = PaddleOcrVLEngine()
-    print("Loading PaddleOCR-VL (first run downloads the model)...")
+    print("Connecting PaddleOCR-VL pipeline to its configured backend...")
     engine.warmup()
 
     for path in paths:

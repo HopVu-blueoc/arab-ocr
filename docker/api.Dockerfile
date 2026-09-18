@@ -25,12 +25,19 @@ WORKDIR /app
 # Dependencies first so this layer only rebuilds when pyproject.toml/uv.lock
 # change, not on every source edit - paddlepaddle alone is 100+MB.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev --no-cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
 
 COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
-RUN uv sync --frozen --no-dev --no-cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+# PaddleOCR-VL's service-backed mode is a client of the dedicated VLM
+# process. Fail the image build here instead of discovering at worker startup
+# that the optional PaddleX genai-client dependencies were omitted.
+RUN .venv/bin/python -c "from paddlex.utils.deps import is_genai_client_plugin_available as available; assert available(), 'PaddleX genai-client plugin is unavailable'"
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

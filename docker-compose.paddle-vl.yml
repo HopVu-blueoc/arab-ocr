@@ -1,0 +1,48 @@
+# Optional PaddleOCR-VL overlay for NVIDIA Blackwell / sm_120 GPUs.
+# Do not combine this with docker-compose.gpu.yml: this overlay keeps the
+# Celery worker on the CPU image and gives the GPU exclusively to vLLM.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.paddle-vl.yml up -d --build
+services:
+  worker:
+    image: arabic-ocr-api
+    command: ["celery", "-A", "app.worker.celery_app.celery", "worker",
+      "--loglevel=info", "--pool=prefork", "--concurrency=1", "-B"]
+    environment:
+      OCR_ENGINE: paddle_vl
+      OCR_DEVICE: cpu
+      OCR_VL_MODEL_NAME: ${OCR_VL_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
+      OCR_VL_BACKEND: vllm-server
+      OCR_VL_SERVER_URL: http://paddleocr-vlm-server:8118/v1
+      OCR_VL_MAX_CONCURRENCY: 1
+      OCR_VL_REQUEST_TIMEOUT_SECONDS: ${OCR_VL_REQUEST_TIMEOUT_SECONDS:-600}
+    depends_on:
+      paddleocr-vlm-server:
+        condition: service_healthy
+
+  paddleocr-vlm-server:
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu-sm120-offline
+    container_name: arabic-ocr-vlm-server
+    restart: unless-stopped
+    shm_size: 64g
+    user: root
+    command: ["paddleocr", "genai_server",
+      "--model_name", "${OCR_VL_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}",
+      "--host", "0.0.0.0", "--port", "8118", "--backend", "vllm",
+      "--backend_config", "/home/paddleocr/vllm_config.yml"]
+    volumes:
+      - ./docker/paddle-vl-vllm.yml:/home/paddleocr/vllm_config.yml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8118/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 300s

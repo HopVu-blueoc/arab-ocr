@@ -69,6 +69,9 @@ services:
       OCR_ENGINE: ${OCR_ENGINE:-paddle}
       OCR_VL_MODEL_NAME: ${OCR_VL_MODEL_NAME:-PaddleOCR-VL-1.6-0.9B}
       OCR_VL_BACKEND: ${OCR_VL_BACKEND:-native}
+      OCR_VL_SERVER_URL: ${OCR_VL_SERVER_URL:-}
+      OCR_VL_MAX_CONCURRENCY: ${OCR_VL_MAX_CONCURRENCY:-1}
+      OCR_VL_REQUEST_TIMEOUT_SECONDS: ${OCR_VL_REQUEST_TIMEOUT_SECONDS:-600}
       OCR_REC_MODEL: ${OCR_REC_MODEL:-arabic_PP-OCRv5_mobile_rec}
       OCR_DET_MODEL: ${OCR_DET_MODEL:-PP-OCRv5_server_det}
       OCR_LATIN_REC_MODEL: ${OCR_LATIN_REC_MODEL:-latin_PP-OCRv5_mobile_rec}
@@ -112,9 +115,9 @@ services:
   # exactly one process: api and worker share one SQLite file and would race to
   # build it if each migrated on startup.
   migrate:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
+    # The image is built once by `api`. Giving each consumer an identical
+    # build definition makes Compose export the same image tag concurrently,
+    # which fails with "image ... already exists".
     image: arabic-ocr-api
     platform: linux/amd64
     container_name: arabic-ocr-migrate
@@ -129,11 +132,9 @@ services:
     restart: "no"
 
   worker:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    image: arabic-ocr-api   # same image as `api` - build is deduplicated by
-                             # compose since context+dockerfile are identical
+    # The CPU worker reuses the image built by `api`. The GPU overlay replaces
+    # this with its own CUDA build and distinct arabic-ocr-worker-gpu tag.
+    image: arabic-ocr-api
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-worker
     restart: unless-stopped
@@ -143,7 +144,8 @@ services:
     # beat into its own service is required before scaling worker replicas,
     # or each replica schedules the sweep redundantly.
     command: ["celery", "-A", "app.worker.celery_app.celery", "worker",
-      "--loglevel=info", "--pool=prefork", "--concurrency=2", "-B"]
+      "--loglevel=info", "--pool=prefork",
+      "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}", "-B"]
     environment: *backend-env
     volumes:
       - app-data:/app/data
@@ -162,9 +164,9 @@ services:
         condition: service_completed_successfully
 
   flower:
-    image: arabic-ocr-api   # same image as api/worker; flower isn't a
-                             # project dependency, `uv run --with` overlays
-                             # it for just this one invocation
+    # Reuse the image built by `api`; `uv run --with` overlays Flower only for
+    # this invocation, so it does not belong in the base application image.
+    image: arabic-ocr-api
     platform: linux/amd64   # see `api`'s platform note - same constraint
     container_name: arabic-ocr-flower
     restart: unless-stopped
